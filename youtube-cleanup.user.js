@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Cleanup
 // @namespace    youtube-cleanup
-// @version      1.3
+// @version      1.4
 // @description  Strips YouTube down: no Ask YouTube, no Shorts button, no Create button, no topic chips, no Subscriptions sidebar list, and the home feed hidden behind a toggle.
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
@@ -21,6 +21,8 @@
   const HIDE_CHIPS_BAR = true;           // "Add custom feed / All / ..." bar on the home page
   const HIDE_SUBSCRIPTIONS_LIST = true;  // channel list in the left sidebar
   const HOME_FEED_TOGGLE = true;         // home feed hidden, with a button to show it
+  const HIDE_WATCH_CHIPS = true;         // "All / From <channel> / ..." bar next to a video
+  const HIDE_WATCH_SHORTS = true;        // Shorts in the related videos next to a video
 
   // ---- Styles (injected immediately so nothing flashes) ----
   const HOME = 'ytd-browse[page-subtype="home"]';
@@ -61,6 +63,32 @@
       ${HOME} #chips-wrapper,
       ${HOME} ytd-rich-grid-renderer > #header,
       html.yc-home #frosted-glass { display: none !important; }
+    `);
+  }
+
+  // The related-videos column next to a video (#secondary), or under it in
+  // theater mode / narrow windows (#related)
+  const RELATED = 'ytd-watch-flexy :is(#secondary, #related)';
+
+  if (HIDE_WATCH_CHIPS) {
+    css.push(`
+      ${RELATED} yt-related-chip-cloud-renderer,
+      ${RELATED} yt-chip-cloud-renderer,
+      ${RELATED} #chips-wrapper,
+      ${RELATED} ytd-feed-filter-chip-bar-renderer { display: none !important; }
+    `);
+  }
+
+  if (HIDE_WATCH_SHORTS) {
+    css.push(`
+      ${RELATED} ytd-reel-shelf-renderer,
+      ${RELATED} grid-shelf-view-model,
+      ${RELATED} ytd-rich-shelf-renderer:has(a[href^="/shorts/"]),
+      ${RELATED} yt-horizontal-list-renderer:has(a[href^="/shorts/"]),
+      ${RELATED} ytd-item-section-renderer:has(> #contents > ytd-reel-shelf-renderer),
+      ${RELATED} :is(ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2),
+      ${RELATED} ytd-compact-video-renderer:has(a[href^="/shorts/"]),
+      ${RELATED} yt-lockup-view-model:has(a[href^="/shorts/"]) { display: none !important; }
     `);
   }
 
@@ -194,6 +222,28 @@
   // =====================================================================
   // Apply
   // =====================================================================
+  // =====================================================================
+  // Shorts next to a video (backup for the style rules, in case YouTube
+  // renames its elements): any row holding several /shorts/ links goes
+  // =====================================================================
+  function hideWatchShorts() {
+    const col = document.querySelector('ytd-watch-flexy #secondary, ytd-watch-flexy #related');
+    if (!col) return;
+    const links = col.querySelectorAll('a[href^="/shorts/"]:not([data-yc-seen])');
+    links.forEach((a) => {
+      a.setAttribute('data-yc-seen', '');
+      // Climb to the row that holds this Short and others (the shelf),
+      // stopping before the whole related-videos list
+      let el = a;
+      while (el.parentElement && el.parentElement !== col) {
+        const parent = el.parentElement;
+        if (parent.id === 'items' || parent.id === 'contents') break;
+        el = parent;
+      }
+      hide(el);
+    });
+  }
+
   function apply() {
     document.documentElement.classList.toggle('yc-home', location.pathname === '/');
     if (!document.body) return;
@@ -204,6 +254,7 @@
     }
     if (HIDE_SUBSCRIPTIONS_LIST) hideSubscriptionsList();
     if (HOME_FEED_TOGGLE) placeToggle();
+    if (HIDE_WATCH_SHORTS && location.pathname === '/watch') hideWatchShorts();
   }
 
   // Watch for changes as they happen so things are gone before you see them
