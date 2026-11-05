@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok No Login Popup
 // @namespace    tiktok-no-login
-// @version      1.2
+// @version      1.3
 // @description  Removes TikTok's "Log in" pop-ups when you're not logged in, without a flash, and keeps the page clickable and scrollable.
 // @match        https://www.tiktok.com/*
 // @match        https://m.tiktok.com/*
@@ -27,7 +27,13 @@
   const DISMISS_TEXT = ['continue as guest', 'not now', 'maybe later'];
 
   // Anything that looks like a pop-up window
-  const DIALOGS = '[role="dialog"], [aria-modal="true"], [class*="ModalContainer"], [class*="DivModal"]';
+  const DIALOGS = '[role="dialog"], [aria-modal="true"], [class*="ModalContainer"], [class*="DivModal"], [class*="TUXModal"]';
+  // The dimmed backdrop TikTok puts behind a pop-up
+  const BACKDROPS = '[class*="ModalMask"], [class*="ModalOverlay"], [class*="TUXModal-overlay"], [class*="ModalBackdrop"]';
+
+  // How long a pop-up stays hidden while the script waits to see whether it
+  // turns into a login prompt (TikTok draws the box first, the text after)
+  const SETTLE_MS = 450;
 
   // ---- Styles ----
   const style = document.createElement('style');
@@ -39,10 +45,10 @@
     [id^="login-modal"],
     [data-tnf-hidden] { display: none !important; }
 
-    /* Every other pop-up starts invisible until the script has checked it.
-       Ones that aren't login prompts are shown right away. This is what
-       stops the login box flashing on screen. */
-    :is(${DIALOGS}):not([data-tnf-ok]) { visibility: hidden !important; }
+    /* Every other pop-up, and its dimmed backdrop, starts invisible. It's
+       only shown once it has had time to fill in and clearly isn't a login
+       prompt. This is what stops the login box flashing on screen. */
+    :is(${DIALOGS}, ${BACKDROPS}):not([data-tnf-ok]) { visibility: hidden !important; }
 
     /* TikTok freezes the page while its pop-up is open; undo that */
     html.tnf-unlock, html.tnf-unlock body {
@@ -130,17 +136,33 @@
   let lastRemoval = 0;
   let lastSweep = 0;
   let lastClickFix = 0;
+  const firstSeen = new WeakMap();
 
   function clean() {
     if (!document.body) return;
+
+    const now = Date.now();
+    let releasedOne = false;
 
     for (const d of document.querySelectorAll(DIALOGS)) {
       if (d.closest('[data-tnf-hidden]')) continue;
 
       if (!isLoginPrompt(d)) {
-        // Not a login prompt (yet): let it show. If login text turns up in
-        // it later, the next check catches it.
-        d.setAttribute('data-tnf-ok', '');
+        if (d.hasAttribute('data-tnf-ok')) continue;
+        // Not a login prompt yet. Keep it hidden until it has had time to
+        // fill in, then show it (if login text turns up later, the next
+        // check still catches it).
+        if (!firstSeen.has(d)) {
+          firstSeen.set(d, now);
+          setTimeout(clean, SETTLE_MS + 20);
+        }
+        const hasContent = (d.textContent || '').trim().length > 0 || d.querySelector('img, svg, input, button');
+        if (hasContent && now - firstSeen.get(d) >= SETTLE_MS) {
+          d.setAttribute('data-tnf-ok', '');
+          releasedOne = true;
+        } else if (!hasContent) {
+          setTimeout(clean, 200); // still empty: look again shortly
+        }
         continue;
       }
       d.removeAttribute('data-tnf-ok');
@@ -165,7 +187,15 @@
     document.querySelectorAll('[class*="LoginBanner"], [class*="BottomLogin"], [data-e2e*="login-banner"]')
       .forEach(hide);
 
-    const now = Date.now();
+    // A normal pop-up was just shown: show its dimmed backdrop too.
+    // (Backdrops of login pop-ups stay invisible, and invisible things
+    // don't block clicks.)
+    if (releasedOne) {
+      document.querySelectorAll(BACKDROPS).forEach((b) => {
+        if (!b.closest('[data-tnf-hidden]')) b.setAttribute('data-tnf-ok', '');
+      });
+    }
+
     if (now - lastRemoval < 3000 && now - lastSweep > 150) {
       lastSweep = now;
       // While its pop-up is open, TikTok marks the rest of the page as
