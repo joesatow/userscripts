@@ -25,4 +25,4 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 
 ## Updating
 
-Tampermonkey checks for updates about once a day and installs a new version when `@version` goes up. To get one right away: Tampermonkey dashboard → **Check for userscript updates**.
+Tampermonkey checks for updates about once a day and installs a new version when `@version` goes up. To get one right away: click the Tampermonkey icon in the browser toolbar → **Check for userscript updates**.
