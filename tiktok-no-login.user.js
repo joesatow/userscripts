@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok No Login Popup
 // @namespace    tiktok-no-login
-// @version      1.1
+// @version      1.2
 // @description  Removes TikTok's "Log in" pop-ups when you're not logged in, without a flash, and keeps the page clickable and scrollable.
 // @match        https://www.tiktok.com/*
 // @match        https://m.tiktok.com/*
@@ -96,10 +96,40 @@
     }
   }
 
+  // TikTok switches off clicking ("pointer-events: none") on the page's main
+  // containers while its pop-up is open, and leaves it off after the pop-up is
+  // removed. Clicks then fall through to the page background. Switch it back
+  // on for the containers around the video and the main layout.
+  function restoreClicking() {
+    const starts = [
+      ...document.querySelectorAll('video'),
+      document.getElementById('app'),
+      document.getElementById('main-content-video_detail'),
+      document.querySelector('main'),
+    ].filter(Boolean);
+
+    const fix = (el) => {
+      if (el.closest('[data-tnf-hidden]')) return;
+      if (getComputedStyle(el).pointerEvents === 'none') {
+        el.style.setProperty('pointer-events', 'auto', 'important');
+      }
+    };
+
+    // Each container from the video up to the page
+    for (const start of starts) {
+      for (let el = start; el && el !== document.documentElement; el = el.parentElement) fix(el);
+    }
+    // The page's top few layers of layout (covers the side panels too)
+    document.querySelectorAll('body > *, #app > *, #app > * > *, #app > * > * > *').forEach((el) => {
+      if (el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE') fix(el);
+    });
+  }
+
   // Leftover blockers are only looked for in the few seconds after a pop-up
   // is removed (checking the whole page constantly would slow TikTok down)
   let lastRemoval = 0;
   let lastSweep = 0;
+  let lastClickFix = 0;
 
   function clean() {
     if (!document.body) return;
@@ -144,6 +174,13 @@
         if (!el.closest('[data-tnf-hidden]')) el.removeAttribute('inert');
       });
       clearInvisibleBlockers();
+    }
+
+    // Once a login pop-up has been removed on this page, keep clicking switched
+    // on (TikTok can switch it off again later, e.g. when you scroll)
+    if (lastRemoval && now - lastClickFix > 300) {
+      lastClickFix = now;
+      restoreClicking();
     }
 
     document.documentElement.classList.add('tnf-unlock');
