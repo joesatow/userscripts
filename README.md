@@ -12,6 +12,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | Reddit No Feed | Hides the Reddit home feed, Popular and All, Recent Posts, and the Games, Custom Feeds and Recent sidebar sections. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js) |
 | YouTube Cleanup | Removes Ask YouTube, the Shorts and Create buttons, the topic chips and the Subscriptions sidebar list. Home feed hidden behind a "Show home feed" button. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-cleanup.user.js) |
 | Fabric Dark | Dark mode for Microsoft Fabric / Power BI (Dark Reader's engine), including notebooks, with a sun/moon toggle in the top bar. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fabric-dark.user.js) |
+| TikTok No Login Popup | Removes TikTok's "Log in" pop-ups when you're not logged in and turns scrolling back on. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
 
 ## Phone
 
@@ -20,6 +21,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | FB Mobile Cleanup | Replaces mobile Facebook's home feed, Marketplace browse feed, Reels and Video with a simple page: Marketplace search plus shortcuts. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fb-mobile-cleanup.user.js) |
 | YouTube Mobile Cleanup | Mobile YouTube without Ask YouTube, the Shorts, Create and Subscriptions tabs or the topic chips. Home feed behind a toggle. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-mobile-cleanup.user.js) |
 | Reddit No Feed | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js) |
+| TikTok No Login Popup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
 
 ## Updating
 
