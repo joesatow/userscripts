@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Ad Sweeper
 // @namespace    ad-sweeper
-// @version      1.2
+// @version      1.3
 // @description  Catch-all ad cleanup for every site: hides ad slots, sticky ad bars and "ad-free" upsells, mid-article ads, and pop-ups that open on their own (newsletter, giveaway, subscribe). Add #adsweep-off to a page's address to turn it off for that site.
 // @match        *://*/*
 // @run-at       document-start
 // @grant        none
-// @inject-into  page
+// @inject-into  auto
 // @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js
 // @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js
 // ==/UserScript==
