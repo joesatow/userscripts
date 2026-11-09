@@ -1,22 +1,26 @@
 // ==UserScript==
 // @name         X No App Nag
 // @namespace    x-no-app-nag
-// @version      1.1
+// @version      1.2
 // @description  Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
 // @match        https://twitter.com/*
 // @match        https://mobile.twitter.com/*
 // @run-at       document-start
-// @grant        none
-// @inject-into  page
+// @inject-into  auto
+// @grant        GM.xmlHttpRequest
+// @grant        GM_xmlhttpRequest
+// @connect      cdn.syndication.twimg.com
 // @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js
 // @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js
 // ==/UserScript==
 
-// Runs inside X's own page code ("@inject-into page" for the Userscripts app,
-// "@grant none" for Tampermonkey), before X's code starts, so it can step in
-// before X's app jumps.
+// X's security settings block scripts from running inside its page code in
+// Safari, so in the Userscripts app this runs in the app's own separate
+// space. From there it can still hide the nags and catch your taps before
+// X's code sees them. To find which post a quote card shows, it asks X's
+// public embed service (the one embedded tweets on other sites use).
 
 (function () {
   'use strict';
@@ -229,15 +233,19 @@
 
     const here = currentStatusId();
 
-    // A quote card inside a post
+    // A quote card inside a post. If its post can't be found right away,
+    // hand back what's needed to look it up (the tap is blocked either way,
+    // so X's "see this post in the app" box never opens).
     const article = target.closest('article');
     const quote = target.closest('div[role="link"]');
     if (quote && article && article.contains(quote)) {
       const link = quote.querySelector('a[href*="/status/"]');
       const fromLink = link && statusIdFromHref(link.href);
-      const outer = postOfArticle(article);
-      const id = (fromLink && fromLink !== outer ? fromLink : null) || postIdFromData(quote, outer || here);
-      return id && id !== here ? id : null;
+      const outer = postOfArticle(article) || here;
+      const id = (fromLink && fromLink !== outer ? fromLink : null) || postIdFromData(quote, outer);
+      if (id && id !== here) return id;
+      const handle = ((quote.textContent || '').match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || null;
+      return { lookup: true, outer, handle };
     }
 
     // A whole post (e.g. a reply in a thread)
@@ -259,13 +267,54 @@
     return postIdFromData(article, null);
   }
 
+  // ---- Asking X's public embed service which post a post quotes ----
+  const gmRequest =
+    (typeof GM !== 'undefined' && GM && GM.xmlHttpRequest) ? (d) => GM.xmlHttpRequest(d) :
+    (typeof GM_xmlhttpRequest === 'function') ? (d) => GM_xmlhttpRequest(d) :
+    null;
+
+  // The embed service wants a small token worked out from the post's ID
+  function embedToken(id) {
+    return ((Number(id) / 1e15) * Math.PI).toString(6 ** 2).replace(/(0+|\.)/g, '');
+  }
+
+  function quotedPostOf(outerId) {
+    return new Promise((resolve) => {
+      if (!gmRequest || !outerId) return resolve(null);
+      gmRequest({
+        method: 'GET',
+        url: 'https://cdn.syndication.twimg.com/tweet-result?id=' + outerId + '&lang=en&token=' + embedToken(outerId),
+        timeout: 8000,
+        onload: (r) => {
+          try {
+            const data = JSON.parse(r.responseText);
+            const q = data && (data.quoted_tweet || (data.quoted_status_result && data.quoted_status_result.result));
+            const id = q && (q.id_str || q.rest_id);
+            resolve(id && /^\d+$/.test(id) ? String(id) : null);
+          } catch (e) { resolve(null); }
+        },
+        onerror: () => resolve(null),
+        ontimeout: () => resolve(null),
+      });
+    });
+  }
+
   window.addEventListener('click', (e) => {
     if (e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey) return;
-    const id = postForTap(e.target);
-    if (!id) return;
+    const found = postForTap(e.target);
+    if (!found) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    openPost(id);
+    if (typeof found === 'string') return openPost(found);
+
+    // A quote card whose post isn't on the page: look it up, then open it.
+    // If that fails, open the quoted person's profile instead.
+    note('looking up quoted post of', found.outer);
+    quotedPostOf(found.outer).then((id) => {
+      if (id && id !== currentStatusId()) openPost(id);
+      else if (found.handle) location.href = location.origin + '/' + found.handle;
+      else note('could not find quoted post for', found.outer);
+    });
   }, true);
 
   // =====================================================================
