@@ -13,6 +13,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | YouTube Cleanup | Removes Ask YouTube, the Shorts and Create buttons, the topic chips and the Subscriptions sidebar list. Home feed hidden behind a "Show home feed" button. Next to a video, only related videos show: no Shorts, no filter chips. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-cleanup.user.js) |
 | Fabric Dark | Dark mode for Microsoft Fabric / Power BI (Dark Reader's engine), including notebooks, with a sun/moon toggle in the top bar. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fabric-dark.user.js) |
 | TikTok No Login Popup | Removes TikTok's "Log in" pop-ups when you're not logged in and turns scrolling back on. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
+| X No App Nag | Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
 
 ## Phone
 
@@ -22,6 +23,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | YouTube Mobile Cleanup | Mobile YouTube without Ask YouTube, the Shorts, Create and Subscriptions tabs or the topic chips. Home feed behind a toggle. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-mobile-cleanup.user.js) |
 | Reddit No Feed | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js) |
 | TikTok No Login Popup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
+| X No App Nag | Same script as on the computer (use Safari; Brave on iPhone can't run scripts). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
 
 ## Updating
 
