@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ad Sweeper
 // @namespace    ad-sweeper
-// @version      1.0
+// @version      1.1
 // @description  Catch-all ad cleanup for every site: hides ad slots, sticky ad bars and "ad-free" upsells, mid-article ads, and pop-ups that open on their own (newsletter, giveaway, subscribe). Add #adsweep-off to a page's address to turn it off for that site.
 // @match        *://*/*
 // @run-at       document-start
@@ -69,17 +69,27 @@
     'mediavine.com', 'ezoic', 'freestar', 'nativo.com', 'revcontent.com', 'mgid.com', 'zergnet.com',
   ];
 
-  const AD_SELECTORS = [
-    // Google
-    'ins.adsbygoogle', '[id^="div-gpt-ad"]', '[id^="google_ads_iframe"]', '[data-google-query-id]',
+  // Ad-network names matched anywhere in an element's name. Ad networks also
+  // put these names on the page's own body and wrappers (e.g. Raptive adds
+  // "adthrive-device-phone" to <body>), so these are never applied to the
+  // page itself or to anything holding the headline or article (see the
+  // style rules below).
+  const BROAD_SELECTORS = [
     // Raptive / AdThrive (common on news, recipe and travel sites)
     '[class*="adthrive"]', '[id*="adthrive"]', '[class*="raptive-"]', '[id^="raptive-"]',
     // Mediavine
-    '.mv-ad-box', '[id^="mediavine"]', '[class*="mv-sticky"]', '#mv-sticky', '.mv-rail-frame',
+    '[id^="mediavine"]', '[class*="mv-sticky"]',
     // Ezoic, Freestar
-    '[id^="ezoic-pub-ad"]', '.ezoic-ad', '[class*="ezoic-ad"]', '[id^="freestar"]', '[class*="fs-sticky"]',
+    '[class*="ezoic-ad"]', '[id^="freestar"]', '[class*="fs-sticky"]',
     // Recommended-content ad widgets
-    '[id*="taboola"]', '[class*="taboola"]', '.OUTBRAIN', '[id*="outbrain"]', '[class*="revcontent"]', '[id*="rcjsload"]',
+    '[id*="taboola"]', '[class*="taboola"]', '[id*="outbrain"]', '[class*="revcontent"]', '[id*="rcjsload"]',
+  ];
+
+  // Exact ad names and ad frames
+  const AD_SELECTORS = [
+    // Google
+    'ins.adsbygoogle', '[id^="div-gpt-ad"]', '[id^="google_ads_iframe"]', '[data-google-query-id]',
+    '.mv-ad-box', '#mv-sticky', '.mv-rail-frame', '[id^="ezoic-pub-ad"]', '.ezoic-ad', '.OUTBRAIN',
     // Generic ad names (whole names only, so "download" or "header" never match)
     '[class~="ad"]', '[class~="ads"]', '[class~="advert"]', '[class~="advertisement"]', '[class~="ad-slot"]',
     '[class~="ad-unit"]', '[class~="adunit"]', '[class~="ad-wrapper"]', '[class~="ad-container"]', '[class~="ad-banner"]',
@@ -92,8 +102,11 @@
 
   const style = document.createElement('style');
   style.setAttribute('data-adsweep-ui', '');
+  // Never the page itself, its main area or its article
+  const PAGE = 'html, body, main, article, [role="main"]';
   style.textContent = `
-    ${AD_SELECTORS.join(',\n    ')},
+    :is(${AD_SELECTORS.join(', ')}):not(${PAGE}) { display: none !important; }
+    :is(${BROAD_SELECTORS.join(', ')}):not(${PAGE}):not(:has(h1, main, article, [role="main"])) { display: none !important; }
     [data-adsweep-hidden] { display: none !important; }
 
     /* Pages freeze scrolling while a pop-up is open; undo that once it's removed */
@@ -103,9 +116,23 @@
   `;
   (document.head || document.documentElement).appendChild(style);
 
+  // Last check before hiding anything: never the page itself, anything
+  // holding the main content, an article or the headline, or anything with
+  // a lot of text (ads and pop-ups are short; a page is not)
+  function isPageContent(el) {
+    if (el.matches(PAGE)) return true;
+    if (el.querySelector('main, article, [role="main"]')) return true;
+    const len = (el.textContent || '').replace(/\s+/g, ' ').trim().length;
+    // A headline plus a fair amount of text is the page; a pop-up can have
+    // a big headline but says little
+    if (el.querySelector('h1') && len > 800) return true;
+    return len > 3000;
+  }
+
   function hide(el, why) {
     if (!el || el === document.body || el === document.documentElement || el.hasAttribute('data-adsweep-ui')) return false;
     if (el.hasAttribute('data-adsweep-hidden')) return false;
+    if (isPageContent(el)) return false;
     el.setAttribute('data-adsweep-hidden', '');
     note(why, el);
     return true;
@@ -123,7 +150,7 @@
     return AD_HOSTS.some((h) => src.includes(h));
   };
 
-  const AD_SELECTOR_LIST = AD_SELECTORS.join(',');
+  const AD_SELECTOR_LIST = [...AD_SELECTORS, ...BROAD_SELECTORS].join(',');
   function adMarker(el) {
     if (el.matches && el.matches(AD_SELECTOR_LIST)) return true;
     if (el.querySelector && el.querySelector(AD_SELECTOR_LIST)) return true;
@@ -160,7 +187,11 @@
       for (let el = label, i = 0; el && el !== document.body && i < 4; el = el.parentElement, i++) {
         const r = el.getBoundingClientRect();
         if (textLen(el) > 160) break; // that's article text, not an ad box
-        if (r.height > 900) break;
+        // Ad-sized only: not taller than a big ad, and not holding headings
+        // or paragraphs (while a page loads, its containers can be nearly
+        // empty, and must not be mistaken for an ad box)
+        if (r.height > 700) break;
+        if (el.querySelector('h1, h2, main, article, nav, header') || el.querySelectorAll('p').length > 2) break;
         if (el !== label && (adMarker(el) || el.querySelector('iframe, ins, img, a[href*="//"]') || r.height >= 50)) box = el;
       }
       if (box) hide(box, 'labelled ad');
