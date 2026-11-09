@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X No App Nag
 // @namespace    x-no-app-nag
-// @version      1.2
+// @version      1.3
 // @description  Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -152,8 +152,23 @@
     return m ? m[1] || m[2] : null;
   }
 
-  function openPost(id) {
-    location.href = location.origin + '/i/status/' + id;
+  // Open a post at its normal address (x.com/name/status/123), the same kind
+  // shared links use. The short form without the name (x.com/i/status/123)
+  // can be sent on to the App Store for logged-out phone visitors, so it's
+  // only used when the name truly isn't known.
+  function openPost(id, handle) {
+    const name = handle && /^[A-Za-z0-9_]{1,15}$/.test(handle) && handle.toLowerCase() !== 'i' ? handle : null;
+    location.href = location.origin + (name ? '/' + name : '/i') + '/status/' + id;
+  }
+
+  // The account name in a post address, if it has one
+  function handleFromHref(href) {
+    try {
+      const m = new URL(href, location.href).pathname.match(/^\/([A-Za-z0-9_]{1,15})\/status\//);
+      return m && m[1].toLowerCase() !== 'i' ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   // Quote cards usually have no plain link to the quoted post. X attaches
@@ -226,7 +241,9 @@
     const a = target.closest('a[href*="/status/"]');
     if (a) {
       const id = statusIdFromHref(a.href);
-      if (id && id !== currentStatusId() && !/\/(photo|video|analytics|likes|retweets|quotes)\b/.test(a.pathname)) return id;
+      if (id && id !== currentStatusId() && !/\/(photo|video|analytics|likes|retweets|quotes)\b/.test(a.pathname)) {
+        return { id, handle: handleFromHref(a.href) };
+      }
       return null;
     }
     if (control) return null;
@@ -242,16 +259,39 @@
       const link = quote.querySelector('a[href*="/status/"]');
       const fromLink = link && statusIdFromHref(link.href);
       const outer = postOfArticle(article) || here;
+      // The quoted account's name, as shown on the card ("@lamba85")
+      const handle = (link && handleFromHref(link.href)) || handleShownIn(quote);
       const id = (fromLink && fromLink !== outer ? fromLink : null) || postIdFromData(quote, outer);
-      if (id && id !== here) return id;
-      const handle = ((quote.textContent || '').match(/@([A-Za-z0-9_]{1,15})/) || [])[1] || null;
+      if (id && id !== here) return { id, handle };
       return { lookup: true, outer, handle };
     }
 
     // A whole post (e.g. a reply in a thread)
     if (article) {
       const id = postOfArticle(article);
-      return id && id !== here ? id : null;
+      return id && id !== here ? { id, handle: handleOfArticle(article) } : null;
+    }
+    return null;
+  }
+
+  // The "@name" shown on a card: a piece of text that is exactly "@name"
+  // (the card's text runs together, so "@lamba85" and "16h" can touch)
+  function handleShownIn(el) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = walker.nextNode())) {
+      const m = n.nodeValue.trim().match(/^@([A-Za-z0-9_]{1,15})$/);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  // A post's account name, from its timestamp link
+  function handleOfArticle(article) {
+    for (const t of article.querySelectorAll('a[href*="/status/"] time')) {
+      if (article.querySelector('div[role="link"]')?.contains(t)) continue;
+      const h = handleFromHref(t.closest('a').href);
+      if (h) return h;
     }
     return null;
   }
@@ -290,7 +330,12 @@
             const data = JSON.parse(r.responseText);
             const q = data && (data.quoted_tweet || (data.quoted_status_result && data.quoted_status_result.result));
             const id = q && (q.id_str || q.rest_id);
-            resolve(id && /^\d+$/.test(id) ? String(id) : null);
+            // The quoted account's name, so the normal address can be used
+            const handle = q && ((q.user && q.user.screen_name) ||
+              (q.core && q.core.user_results && q.core.user_results.result &&
+               ((q.core.user_results.result.legacy && q.core.user_results.result.legacy.screen_name) ||
+                (q.core.user_results.result.core && q.core.user_results.result.core.screen_name)))) || null;
+            resolve(id && /^\d+$/.test(id) ? { id: String(id), handle } : null);
           } catch (e) { resolve(null); }
         },
         onerror: () => resolve(null),
@@ -305,13 +350,13 @@
     if (!found) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    if (typeof found === 'string') return openPost(found);
+    if (!found.lookup) return openPost(found.id, found.handle);
 
     // A quote card whose post isn't on the page: look it up, then open it.
     // If that fails, open the quoted person's profile instead.
     note('looking up quoted post of', found.outer);
-    quotedPostOf(found.outer).then((id) => {
-      if (id && id !== currentStatusId()) openPost(id);
+    quotedPostOf(found.outer).then((q) => {
+      if (q && q.id !== currentStatusId()) openPost(q.id, q.handle || found.handle);
       else if (found.handle) location.href = location.origin + '/' + found.handle;
       else note('could not find quoted post for', found.outer);
     });
