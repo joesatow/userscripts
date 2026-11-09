@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ad Sweeper
 // @namespace    ad-sweeper
-// @version      1.1
+// @version      1.2
 // @description  Catch-all ad cleanup for every site: hides ad slots, sticky ad bars and "ad-free" upsells, mid-article ads, and pop-ups that open on their own (newsletter, giveaway, subscribe). Add #adsweep-off to a page's address to turn it off for that site.
 // @match        *://*/*
 // @run-at       document-start
@@ -309,6 +309,68 @@
   }
 
   // =====================================================================
+  // 4b. The site's own membership promos inside the page
+  // =====================================================================
+  // House ads have no ad-network names or "Advertisement" label. They're
+  // either a picture linking to a sign-up page (often the whole promo is one
+  // image, so its words can't be read), or a short box pitching a
+  // membership with a button. The site's header, menu and footer are never
+  // touched, and neither are long passages of text.
+  const SIGNUP_LINK = /\/(premium|membership|members|subscribe|subscription|subscriptions|join|plans|pricing|support-us|become-a-member|checkout\/premium)(\/|\?|#|$)|[?&](plan|tier)=/i;
+  const PROMO_TEXT = /ad[\s-]?free|(join|get|go|try|upgrade to|start) (premium|plus|pro|insider|membership|vip)|premium (annual|monthly|membership|plan|subscription)|become a (member|subscriber|supporter|patron)|membership (perks|benefits)|members get|subscribe (now|today) and|support (independent|local) (journalism|news)/i;
+  const SITE_CHROME = 'header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"], [data-adsweep-ui]';
+
+  function promoBox(start) {
+    // The smallest container around it that looks like a self-contained promo:
+    // little text, not too tall, not the page itself
+    let box = null;
+    for (let el = start, i = 0; el && el !== document.body && i < 4; el = el.parentElement, i++) {
+      if (isPageContent(el)) break;
+      const len = textLen(el);
+      const r = el.getBoundingClientRect();
+      if (len > 500 || r.height > 900 || el.querySelectorAll('p').length > 4) break;
+      if (el.matches('p, li, span') && el.parentElement && el.parentElement.querySelectorAll('p').length > 2) break; // a sentence in the article
+      if (r.height >= 60 && r.width >= 200) box = el;
+    }
+    return box;
+  }
+
+  function sweepHousePromos(root) {
+    if (!root.querySelectorAll) return;
+
+    // Pictures that link to a sign-up page
+    for (const a of root.querySelectorAll('a[href]')) {
+      if (a.closest(SITE_CHROME) || a.closest('[data-adsweep-hidden]')) continue;
+      let path = '';
+      try { const u = new URL(a.href, location.href); path = u.pathname + u.search; } catch (e) { continue; }
+      if (!SIGNUP_LINK.test(path)) continue;
+      const pic = a.querySelector('img, picture, svg[width], [style*="background-image"]');
+      const hasPromoWords = PROMO_TEXT.test((a.textContent || '') + ' ' + [...a.querySelectorAll('img[alt]')].map((i) => i.alt).join(' '));
+      if (!pic && !hasPromoWords) continue;
+      const box = promoBox(a);
+      if (box) hide(box, 'site promo');
+    }
+
+    // Short boxes pitching a membership, with a button or link. Found by
+    // reading the page's text once (checking every box's full text on a
+    // long page would be slow on a phone).
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    let n;
+    while ((n = walker.nextNode())) {
+      const t = n.nodeValue;
+      if (t.length < 6 || t.length > 300 || !PROMO_TEXT.test(t)) continue;
+      const el = n.parentElement;
+      if (el && !el.closest(SITE_CHROME) && !el.closest('[data-adsweep-hidden]')) hits.push(el);
+    }
+    for (const el of hits) {
+      if (el.closest('[data-adsweep-hidden]')) continue;
+      const box = promoBox(el);
+      if (box && box.querySelector('a[href], button, [role="button"]')) hide(box, 'site promo');
+    }
+  }
+
+  // =====================================================================
   // 5. Tidy up: boxes left empty once their ad is gone
   // =====================================================================
   function collapseEmptyWrappers() {
@@ -341,8 +403,14 @@
     if (fullPass) {
       fullPass = false;
       sweepLabels(document.body);
+      sweepHousePromos(document.body);
     } else {
-      for (const root of pendingRoots) if (root.isConnected) sweepLabels(root);
+      for (const root of pendingRoots) {
+        if (!root.isConnected) continue;
+        sweepLabels(root);
+        // A newly added promo may be the root itself or sit just above it
+        sweepHousePromos(root.parentElement || root);
+      }
     }
     pendingRoots.clear();
     if (!inFrame) {
