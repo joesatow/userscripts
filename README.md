@@ -14,6 +14,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | Fabric Dark | Dark mode for Microsoft Fabric / Power BI (Dark Reader's engine), including notebooks, with a sun/moon toggle in the top bar. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fabric-dark.user.js) |
 | TikTok No Login Popup | Removes TikTok's "Log in" pop-ups when you're not logged in and turns scrolling back on. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
 | X No App Nag | Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
+| Ad Sweeper | Catch-all ad cleanup on every site: ad slots, sticky ad bars and "ad-free" upsells, labelled mid-article ads, and pop-ups that open on their own. Add `#adsweep-off` to a page address to turn it off for that site (`#adsweep-on` to undo, `#adsweep-debug` to see what it removed). Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
 
 ## Phone
 
@@ -24,6 +25,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | Reddit No Feed | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js) |
 | TikTok No Login Popup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
 | X No App Nag | Same script as on the computer (use Safari; Brave on iPhone can't run scripts). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
+| Ad Sweeper | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
 
 ## Updating
 

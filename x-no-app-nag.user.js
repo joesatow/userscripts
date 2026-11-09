@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X No App Nag
 // @namespace    x-no-app-nag
-// @version      1.0
+// @version      1.1
 // @description  Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -27,6 +27,7 @@
   // Text of the nag prompts (any capitalization)
   const NAG_TEXT = [
     'open app', 'get the app', 'open the app', 'use the app', 'see more on x', 'see more in the app',
+    'see this post in the app', 'view in the app', 'continue in the app', 'in the app', 'open x',
     "don't miss what's happening", 'don’t miss what’s happening', 'log in to x', 'sign up for x',
     'new to x?', 'people on x are the first to know', 'see what’s happening', "see what's happening",
   ];
@@ -35,8 +36,33 @@
     return !!url && APP_LINK.test(String(url));
   }
 
+  // ---- Troubleshooting panel: add #xnag-debug to the address ----
+  let debugOn = false;
+  try {
+    if (location.hash.includes('xnag-debug')) sessionStorage.setItem('xnag-debug', '1');
+    debugOn = sessionStorage.getItem('xnag-debug') === '1';
+  } catch (e) {}
+  const debugLines = [];
+  let debugBox = null;
+
+  function showDebug() {
+    if (!debugOn || !document.body) return;
+    if (!debugBox || !debugBox.isConnected) {
+      debugBox = document.createElement('div');
+      debugBox.setAttribute('data-xnag-ui', '');
+      debugBox.setAttribute('style', 'position:fixed;left:6px;right:6px;bottom:6px;z-index:2147483647;max-height:35vh;overflow:auto;' +
+        'background:rgba(0,0,0,.85);color:#9f9;font:11px/1.35 monospace;padding:6px 8px;border-radius:6px;white-space:pre-wrap;word-break:break-all;pointer-events:none');
+      document.body.appendChild(debugBox);
+    }
+    debugBox.textContent = '[X No App Nag] running on ' + location.pathname + '\n' + (debugLines.join('\n') || 'nothing blocked yet');
+  }
+
   function note(what, url) {
     try { console.info('[X No App Nag] blocked ' + what + ': ' + url); } catch (e) {}
+    if (!debugOn) return;
+    debugLines.push(what + ': ' + String(url || '').slice(0, 100));
+    if (debugLines.length > 25) debugLines.shift();
+    showDebug();
   }
 
   // =====================================================================
@@ -135,15 +161,32 @@
     return null;
   }
 
-  function findPostId(obj, skip, depth, seen) {
-    if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj)) return null;
-    seen.add(obj);
+  // Something that is clearly a post (not a user account, which also has
+  // an ID): it has post text, or says it's a Tweet
+  function postIdOf(obj) {
+    if (!obj || typeof obj !== 'object') return null;
     const id = obj.rest_id || obj.id_str || (obj.legacy && obj.legacy.id_str);
-    const looksLikePost = id && /^\d{5,25}$/.test(String(id)) &&
-      ('full_text' in obj || 'text' in obj || 'legacy' in obj || 'quoted_status_id_str' in obj || 'user' in obj || 'core' in obj);
-    if (looksLikePost && String(id) !== skip) return String(id);
-    for (const key of ['tweet', 'quotedTweet', 'quoted_status', 'quoted_status_result', 'result', 'legacy', 'data', 'item', 'content']) {
-      const found = findPostId(obj[key], skip, depth + 1, seen);
+    if (!id || !/^\d{5,25}$/.test(String(id))) return null;
+    const isPost = obj.__typename === 'Tweet' || obj.__typename === 'TweetWithVisibilityResults' ||
+      'full_text' in obj || (obj.legacy && 'full_text' in obj.legacy) ||
+      ('text' in obj && ('user' in obj || 'author' in obj)) || 'quoted_status_id_str' in obj;
+    if (!isPost || 'screen_name' in obj || (obj.legacy && 'screen_name' in obj.legacy)) return null;
+    return String(id);
+  }
+
+  // Search the data: likely keys first, then everything else, a few levels deep
+  const LIKELY_KEYS = ['quotedTweet', 'quoted_status', 'quoted_status_result', 'quotedStatus', 'tweet', 'result', 'legacy', 'data', 'item', 'content', 'status'];
+  function findPostId(obj, skip, depth, seen) {
+    if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj) || obj instanceof Node) return null;
+    seen.add(obj);
+    const own = postIdOf(obj);
+    if (own && own !== skip) return own;
+    const keys = [...LIKELY_KEYS.filter((k) => k in obj), ...Object.keys(obj).filter((k) => !LIKELY_KEYS.includes(k)).slice(0, 40)];
+    for (const key of keys) {
+      if (key === 'children' || key.startsWith('_') || key === 'ref') continue;
+      let v;
+      try { v = obj[key]; } catch (e) { continue; }
+      const found = findPostId(v, skip, depth + 1, seen);
       if (found) return found;
     }
     return null;
@@ -240,9 +283,15 @@
   `;
   (document.head || document.documentElement).appendChild(style);
 
+  // Returns true if it hid something new
   function hide(el) {
-    if (el && el !== document.body && el !== document.documentElement) el.setAttribute('data-xnag-hidden', '');
+    if (!el || el === document.body || el === document.documentElement) return false;
+    if (el.hasAttribute('data-xnag-hidden') || el.hasAttribute('data-xnag-ui')) return false;
+    el.setAttribute('data-xnag-hidden', '');
+    return true;
   }
+
+  const textOf = (el) => (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
 
   // Compare with all apostrophe styles treated the same (’ ‘ ` ´ ')
   const plain = (s) => String(s).toLowerCase().replace(/[’‘`´]/g, "'");
@@ -253,15 +302,60 @@
     return NAG_PLAIN.some((s) => t.includes(s));
   }
 
+  // "Open app" style buttons, found by their text on any kind of element
+  const APP_BUTTON = /^(open app|open x|get the app|open in app|open in the app|use app|use the app|open the app)$/i;
+
+  // The pinned layer (pop-up) around an element: its outermost "fixed"
+  // container, unless that's something huge holding the page itself
+  function pinnedLayer(el) {
+    let layer = null;
+    for (let x = el; x && x !== document.body && x !== document.documentElement; x = x.parentElement) {
+      if (getComputedStyle(x).position === 'fixed') layer = x;
+    }
+    if (layer && (layer.textContent || '').length > 1500) return null;
+    return layer;
+  }
+
   function sweep() {
     if (!document.body) return;
+    showDebug();
 
-    // "Open app" / "Get the app" buttons and links
-    document.querySelectorAll('a, button, [role="button"], [role="link"]').forEach((el) => {
-      if (el.hasAttribute('data-xnag-hidden')) return;
-      const t = (el.textContent || '').trim().toLowerCase();
-      if (t === 'open app' || t === 'get the app' || t === 'open in app' || t === 'use app' || t === 'open the app') hide(el);
-    });
+    // "Open app" / "Open X" buttons (the button itself, or its clickable wrapper)
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let n;
+    const buttons = [];
+    while ((n = walker.nextNode())) {
+      const t = n.nodeValue.trim();
+      if (t.length <= 20 && APP_BUTTON.test(t) && n.parentElement && !n.parentElement.closest('[data-xnag-hidden], [data-xnag-ui], article')) buttons.push(n.parentElement);
+    }
+    for (const el of buttons) {
+      // The whole button: its clickable wrapper, or else the largest small
+      // box around the words that holds nothing but them (so no empty
+      // pill is left behind)
+      let target = el.closest('a, button, [role="button"], [role="link"]');
+      if (!target) {
+        const words = el.textContent.trim();
+        target = el;
+        for (let x = el.parentElement; x && x !== document.body; x = x.parentElement) {
+          if (x.textContent.trim() !== words || x.getBoundingClientRect().height > 80) break;
+          target = x;
+        }
+      }
+      // Inside an "in the app" pop-up: remove the whole pop-up instead
+      const layer = pinnedLayer(target);
+      if (layer && hasNagText(layer) && !layer.querySelector('article')) { if (hide(layer)) note('app pop-up', textOf(layer)); }
+      else if (hide(target)) note('app button', textOf(target));
+    }
+
+    // "See this post in the app" and similar boxes, wherever X puts them
+    for (const el of document.querySelectorAll('div, section, aside')) {
+      if (el.children.length > 30 || el.closest('[data-xnag-hidden], [data-xnag-ui], article')) continue;
+      const own = [...el.childNodes].filter((c) => c.nodeType === 3).map((c) => c.nodeValue).join(' ');
+      if (!own.trim()) continue;
+      if (!/see this post in the app|use the app to|see more in the app|continue in the app|view in the app/i.test(own)) continue;
+      const layer = pinnedLayer(el);
+      if (layer && hide(layer)) { note('app pop-up', textOf(layer)); document.documentElement.classList.add('xnag-unlock'); }
+    }
 
     // Login / app pop-ups. X puts its pop-ups in a "layers" area; anything
     // there that's a sheet or dialog and talks about logging in or the app
