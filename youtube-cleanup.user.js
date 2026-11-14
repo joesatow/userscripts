@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Cleanup
 // @namespace    youtube-cleanup
-// @version      1.4
+// @version      1.5
 // @description  Strips YouTube down: no Ask YouTube, no Shorts button, no Create button, no topic chips, no Subscriptions sidebar list, and the home feed hidden behind a toggle.
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
@@ -23,6 +23,8 @@
   const HOME_FEED_TOGGLE = true;         // home feed hidden, with a button to show it
   const HIDE_WATCH_CHIPS = true;         // "All / From <channel> / ..." bar next to a video
   const HIDE_WATCH_SHORTS = true;        // Shorts in the related videos next to a video
+  const DEFAULT_THEATER = true;          // videos open in theater (wide) mode
+  const RELATED_TOGGLE = true;           // related videos hidden, with a button to show them
 
   // ---- Styles (injected immediately so nothing flashes) ----
   const HOME = 'ytd-browse[page-subtype="home"]';
@@ -115,9 +117,55 @@
     `);
   }
 
+  if (RELATED_TOGGLE) {
+    // The list of related videos next to (or, in theater mode, below) the
+    // video. display:none also stops it loading more as you scroll.
+    css.push(`
+      html:not(.yc-related-on) ytd-watch-flexy ytd-watch-next-secondary-results-renderer { display: none !important; }
+
+      #yc-related-toggle {
+        display: block;
+        width: 100%;
+        margin: 0 0 12px;
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 18px;
+        font: 500 14px/20px Roboto, Arial, sans-serif;
+        cursor: pointer;
+        background: var(--yt-spec-badge-chip-background, rgba(255,255,255,.1));
+        color: var(--yt-spec-text-primary, #f1f1f1);
+      }
+      #yc-related-toggle:hover { background: var(--yt-spec-10-percent-layer, rgba(255,255,255,.2)); }
+    `);
+  }
+
   const style = document.createElement('style');
   style.textContent = css.join('\n');
   (document.head || document.documentElement).appendChild(style);
+
+  // =====================================================================
+  // Theater mode by default
+  // =====================================================================
+  // YouTube remembers theater mode in a cookie named "wide". Setting it
+  // before YouTube starts makes videos open in theater mode straight away.
+  if (DEFAULT_THEATER) {
+    try { document.cookie = 'wide=1; domain=.youtube.com; path=/; max-age=31536000; SameSite=Lax'; } catch (e) {}
+  }
+
+  // Backup: if a video still opens in the normal layout, press YouTube's own
+  // theater button once for that video. If you switch theater mode off
+  // yourself, it stays off for that video.
+  let theaterDoneFor = '';
+  function ensureTheater() {
+    if (location.pathname !== '/watch') return;
+    const vid = new URLSearchParams(location.search).get('v') || '';
+    if (!vid || theaterDoneFor === vid) return;
+    const flexy = document.querySelector('ytd-watch-flexy');
+    const sizeBtn = document.querySelector('.ytp-size-button');
+    if (!flexy || !sizeBtn || flexy.hidden) return;
+    theaterDoneFor = vid;
+    if (!flexy.hasAttribute('theater') && !flexy.hasAttribute('fullscreen')) sizeBtn.click();
+  }
 
   function hide(el) {
     if (el) el.setAttribute('data-yc-hidden', '');
@@ -220,6 +268,38 @@
   }
 
   // =====================================================================
+  // Related videos toggle (in the column next to / below the video)
+  // =====================================================================
+  let relatedOn = false; // hidden every time you open YouTube
+
+  function placeRelatedToggle() {
+    const list = document.querySelector('ytd-watch-flexy ytd-watch-next-secondary-results-renderer');
+    if (!list || !list.parentElement) return;
+
+    let btn = document.getElementById('yc-related-toggle');
+    if (btn && btn.nextElementSibling === list) return; // already in place
+
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'yc-related-toggle';
+      btn.type = 'button';
+      btn.addEventListener('click', () => {
+        relatedOn = !relatedOn;
+        updateRelatedToggle();
+        if (relatedOn) window.dispatchEvent(new Event('resize')); // nudge YouTube to lay out the list
+      });
+    }
+    list.parentElement.insertBefore(btn, list);
+    updateRelatedToggle();
+  }
+
+  function updateRelatedToggle() {
+    document.documentElement.classList.toggle('yc-related-on', relatedOn);
+    const btn = document.getElementById('yc-related-toggle');
+    if (btn) btn.textContent = relatedOn ? 'Hide related videos' : 'Show related videos';
+  }
+
+  // =====================================================================
   // Apply
   // =====================================================================
   // =====================================================================
@@ -232,12 +312,15 @@
     const links = col.querySelectorAll('a[href^="/shorts/"]:not([data-yc-seen])');
     links.forEach((a) => {
       a.setAttribute('data-yc-seen', '');
-      // Climb to the row that holds this Short and others (the shelf),
-      // stopping before the whole related-videos list
+      // Climb to the row that holds this Short and others (the shelf), but
+      // never so far that it also holds a normal video: that would be the
+      // whole related-videos list (which is what happened when YouTube
+      // changed how it builds the list)
       let el = a;
       while (el.parentElement && el.parentElement !== col) {
         const parent = el.parentElement;
         if (parent.id === 'items' || parent.id === 'contents') break;
+        if (parent.querySelector('a[href^="/watch"]')) break;
         el = parent;
       }
       hide(el);
@@ -255,6 +338,8 @@
     if (HIDE_SUBSCRIPTIONS_LIST) hideSubscriptionsList();
     if (HOME_FEED_TOGGLE) placeToggle();
     if (HIDE_WATCH_SHORTS && location.pathname === '/watch') hideWatchShorts();
+    if (RELATED_TOGGLE && location.pathname === '/watch') placeRelatedToggle();
+    if (DEFAULT_THEATER) ensureTheater();
   }
 
   // Watch for changes as they happen so things are gone before you see them
@@ -269,6 +354,7 @@
   }).observe(document.documentElement, { childList: true, subtree: true });
 
   updateToggle();
+  updateRelatedToggle();
   setInterval(apply, 500);
   window.addEventListener('yt-navigate-finish', apply);
   window.addEventListener('popstate', apply);
