@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         YouTube Cleanup
 // @namespace    youtube-cleanup
-// @version      1.6
-// @description  Strips YouTube down: no Ask YouTube, no Shorts button, no Create button, no topic chips, no Subscriptions sidebar list, and the home feed hidden behind a toggle.
+// @version      1.7
+// @description  Strips YouTube down: no Ask YouTube, no Shorts button, no Create button, no topic chips, no Subscriptions sidebar list, the home feed and related videos behind buttons, theater mode by default, and sponsor segments skipped (SponsorBlock).
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_xmlhttpRequest
+// @sandbox      raw
+// @connect      sponsor.ajay.app
 // @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-cleanup.user.js
 // @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-cleanup.user.js
 // ==/UserScript==
@@ -25,6 +27,11 @@
   const HIDE_WATCH_SHORTS = true;        // Shorts in the related videos next to a video
   const DEFAULT_THEATER = true;          // videos open in theater (wide) mode
   const RELATED_TOGGLE = true;           // related videos hidden, with a button to show them
+  const SKIP_SPONSORS = true;            // skip segments viewers have marked (SponsorBlock)
+  // Which kinds of segment to skip. Others you can add:
+  //   'intro', 'outro', 'preview' (recaps/teasers), 'filler' (tangents),
+  //   'music_offtopic' (non-music parts of music videos)
+  const SKIP_CATEGORIES = ['sponsor', 'selfpromo', 'interaction'];
 
   // ---- Styles (injected immediately so nothing flashes) ----
   const HOME = 'ytd-browse[page-subtype="home"]';
@@ -346,6 +353,180 @@
     });
   }
 
+  // =====================================================================
+  // Skip sponsor segments (SponsorBlock)
+  // =====================================================================
+  // Viewers mark where sponsor segments start and end; SponsorBlock's free
+  // public database stores those times. For each video this asks the
+  // database for its segments and jumps past them as you reach them.
+  //
+  // Privacy: it never sends the video's ID. It sends the first 4 characters
+  // of a scrambled (SHA-256) version of it; the database answers with every
+  // video matching those 4 characters, and the right one is picked out here.
+
+  const SB_API = 'https://sponsor.ajay.app/api/skipSegments/';
+  const SB_LABEL = {
+    sponsor: 'sponsor', selfpromo: 'self-promotion', interaction: '"like and subscribe" reminder',
+    intro: 'intro', outro: 'outro', preview: 'preview', filler: 'tangent', music_offtopic: 'non-music section',
+  };
+  // Same colors the SponsorBlock extension uses on the progress bar
+  const SB_COLOR = {
+    sponsor: '#00d400', selfpromo: '#ffff00', interaction: '#cc00ff', intro: '#00ffff',
+    outro: '#0202ed', preview: '#008fd6', filler: '#7300ff', music_offtopic: '#ff9900',
+  };
+
+  const sb = {
+    vid: '',          // video the segments belong to
+    segments: [],     // [{ start, end, category }]
+    allowed: new Set(), // segments you chose to watch (Undo)
+    lastTime: -1,     // playback position at the last check
+    ourSeek: false,   // the next "seeking" is the script's own jump
+    video: null,
+    barFor: '',       // what the progress-bar markers were drawn for
+  };
+
+  function sbRequest(url) {
+    return new Promise((resolve) => {
+      if (typeof GM_xmlhttpRequest === 'function') {
+        GM_xmlhttpRequest({
+          method: 'GET', url, timeout: 10000,
+          onload: (r) => resolve(r.status === 200 ? r.responseText : null),
+          onerror: () => resolve(null), ontimeout: () => resolve(null),
+        });
+      } else {
+        fetch(url).then((r) => (r.ok ? r.text() : null)).then(resolve, () => resolve(null));
+      }
+    });
+  }
+
+  async function sbHashPrefix(id) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(id));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 4);
+  }
+
+  async function sbLoad(vid) {
+    try {
+      const prefix = await sbHashPrefix(vid);
+      const url = SB_API + prefix +
+        '?categories=' + encodeURIComponent(JSON.stringify(SKIP_CATEGORIES)) +
+        '&actionTypes=' + encodeURIComponent(JSON.stringify(['skip']));
+      const text = await sbRequest(url);
+      if (sb.vid !== vid) return; // moved on to another video meanwhile
+      const list = text ? JSON.parse(text) : [];
+      const mine = (Array.isArray(list) ? list : []).find((v) => v && v.videoID === vid);
+      sb.segments = ((mine && mine.segments) || [])
+        .filter((s) => s.actionType === 'skip' && Array.isArray(s.segment) && s.segment[1] - s.segment[0] > 0.5)
+        .map((s) => ({ start: s.segment[0], end: s.segment[1], category: s.category }))
+        .sort((a, b) => a.start - b.start);
+      sb.barFor = '';
+    } catch (e) {
+      sb.segments = [];
+    }
+  }
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.round(sec));
+    return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  }
+
+  // A small note over the video: "Skipped sponsor (0:45) · Undo"
+  function sbToast(seg, index) {
+    const player = document.querySelector('#movie_player');
+    if (!player) return;
+    document.getElementById('yc-sb-toast')?.remove();
+    const box = document.createElement('div');
+    box.id = 'yc-sb-toast';
+    box.setAttribute('style', 'position:absolute;left:12px;bottom:72px;z-index:70;display:flex;gap:10px;align-items:center;' +
+      'padding:7px 12px;border-radius:6px;background:rgba(0,0,0,.78);color:#fff;font:500 13px/1.2 Roboto,Arial,sans-serif');
+    const msg = document.createElement('span');
+    msg.textContent = 'Skipped ' + (SB_LABEL[seg.category] || seg.category) + ' (' + fmtTime(seg.end - seg.start) + ')';
+    const undo = document.createElement('button');
+    undo.type = 'button';
+    undo.textContent = 'Undo';
+    undo.setAttribute('style', 'border:0;border-radius:4px;padding:3px 8px;cursor:pointer;background:rgba(255,255,255,.2);color:#fff;font:inherit');
+    undo.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sb.allowed.add(index);
+      if (sb.video) {
+        sb.ourSeek = true;
+        sb.video.currentTime = seg.start;
+        sb.lastTime = seg.start;
+      }
+      box.remove();
+    });
+    box.append(msg, undo);
+    player.appendChild(box);
+    setTimeout(() => box.remove(), 5000);
+  }
+
+  function sbCheck() {
+    const v = sb.video;
+    if (!v || !sb.segments.length) { if (v) sb.lastTime = v.currentTime; return; }
+    const t = v.currentTime;
+    for (let i = 0; i < sb.segments.length; i++) {
+      const seg = sb.segments[i];
+      if (sb.allowed.has(i)) continue;
+      // Reached the segment by playing into it (not by seeking into its middle)
+      if (t >= seg.start && t < seg.end - 0.3 && sb.lastTime < seg.start + 0.5) {
+        sb.ourSeek = true;
+        v.currentTime = Math.min(seg.end, v.duration || seg.end);
+        sb.lastTime = seg.end;
+        sbToast(seg, i);
+        return;
+      }
+    }
+    sb.lastTime = t;
+  }
+
+  function sbAttach() {
+    const v = document.querySelector('#movie_player video.html5-main-video, #movie_player video');
+    if (!v || v === sb.video) return;
+    sb.video = v;
+    v.addEventListener('timeupdate', () => { if (location.pathname === '/watch') sbCheck(); });
+    v.addEventListener('seeking', () => {
+      // Your own seek: remember where you went, so a segment you jumped
+      // into the middle of is left alone
+      if (sb.ourSeek) { sb.ourSeek = false; return; }
+      sb.lastTime = v.currentTime;
+    });
+  }
+
+  // Colored marks on the progress bar where segments are
+  function sbDrawBar() {
+    const bar = document.querySelector('#movie_player .ytp-progress-bar');
+    const v = sb.video;
+    if (!bar || !v || !(v.duration > 0)) return;
+    const key = sb.vid + '|' + sb.segments.length + '|' + Math.round(v.duration);
+    let layer = bar.querySelector('#yc-sb-bar');
+    if (layer && sb.barFor === key) return;
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'yc-sb-bar';
+      layer.setAttribute('style', 'position:absolute;inset:0;pointer-events:none;z-index:35');
+      bar.appendChild(layer);
+    }
+    layer.replaceChildren(...sb.segments.map((s) => {
+      const mark = document.createElement('div');
+      mark.setAttribute('style', 'position:absolute;top:0;bottom:0;opacity:.85;' +
+        'left:' + (s.start / v.duration * 100) + '%;width:' + ((s.end - s.start) / v.duration * 100) + '%;' +
+        'background:' + (SB_COLOR[s.category] || '#00d400'));
+      return mark;
+    }));
+    sb.barFor = key;
+  }
+
+  function sponsorTick() {
+    if (location.pathname !== '/watch') return;
+    const vid = new URLSearchParams(location.search).get('v') || '';
+    if (!vid) return;
+    sbAttach();
+    if (vid !== sb.vid) {
+      Object.assign(sb, { vid, segments: [], allowed: new Set(), lastTime: -1, barFor: '' });
+      sbLoad(vid);
+    }
+    sbDrawBar();
+  }
+
   function apply() {
     document.documentElement.classList.toggle('yc-home', location.pathname === '/');
     if (!document.body) return;
@@ -359,6 +540,7 @@
     if (HIDE_WATCH_SHORTS && location.pathname === '/watch') hideWatchShorts();
     if (RELATED_TOGGLE && location.pathname === '/watch') placeRelatedToggle();
     if (DEFAULT_THEATER) ensureTheater();
+    if (SKIP_SPONSORS) sponsorTick();
   }
 
   // Watch for changes as they happen so things are gone before you see them
