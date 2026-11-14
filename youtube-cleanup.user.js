@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Cleanup
 // @namespace    youtube-cleanup
-// @version      1.5
+// @version      1.6
 // @description  Strips YouTube down: no Ask YouTube, no Shorts button, no Create button, no topic chips, no Subscriptions sidebar list, and the home feed hidden behind a toggle.
 // @match        https://www.youtube.com/*
 // @match        https://m.youtube.com/*
@@ -87,7 +87,6 @@
       ${RELATED} grid-shelf-view-model,
       ${RELATED} ytd-rich-shelf-renderer:has(a[href^="/shorts/"]),
       ${RELATED} yt-horizontal-list-renderer:has(a[href^="/shorts/"]),
-      ${RELATED} ytd-item-section-renderer:has(> #contents > ytd-reel-shelf-renderer),
       ${RELATED} :is(ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2),
       ${RELATED} ytd-compact-video-renderer:has(a[href^="/shorts/"]),
       ${RELATED} yt-lockup-view-model:has(a[href^="/shorts/"]) { display: none !important; }
@@ -155,16 +154,36 @@
   // Backup: if a video still opens in the normal layout, press YouTube's own
   // theater button once for that video. If you switch theater mode off
   // yourself, it stays off for that video.
-  let theaterDoneFor = '';
+  // Per video: whether theater mode has been reached, and how many tries so
+  // far. It only counts as done once theater mode is actually on, so a
+  // press made before the player was ready gets tried again. Once it's on,
+  // switching it off yourself is left alone for that video.
+  const theater = { vid: '', done: false, tries: 0, lastTry: 0 };
+
   function ensureTheater() {
     if (location.pathname !== '/watch') return;
     const vid = new URLSearchParams(location.search).get('v') || '';
-    if (!vid || theaterDoneFor === vid) return;
+    if (!vid) return;
+    if (theater.vid !== vid) Object.assign(theater, { vid, done: false, tries: 0, lastTry: 0 });
+    if (theater.done) return;
+
     const flexy = document.querySelector('ytd-watch-flexy');
+    if (!flexy || flexy.hidden) return;
+    if (flexy.hasAttribute('theater') || flexy.hasAttribute('fullscreen')) { theater.done = true; return; }
+    if (theater.tries >= 4 || Date.now() - theater.lastTry < 1000) return;
+
     const sizeBtn = document.querySelector('.ytp-size-button');
-    if (!flexy || !sizeBtn || flexy.hidden) return;
-    theaterDoneFor = vid;
-    if (!flexy.hasAttribute('theater') && !flexy.hasAttribute('fullscreen')) sizeBtn.click();
+    const player = document.querySelector('#movie_player');
+    if (!sizeBtn || !player) return; // player not ready yet; try again on the next check
+    theater.tries++;
+    theater.lastTry = Date.now();
+    if (theater.tries <= 2) {
+      sizeBtn.click();
+    } else {
+      // Pressing the button didn't take: use YouTube's own "t" shortcut
+      // (sent once, to the page; YouTube's shortcuts listen there)
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', code: 'KeyT', keyCode: 84, which: 84, bubbles: true, cancelable: true }));
+    }
   }
 
   function hide(el) {
