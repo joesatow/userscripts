@@ -15,6 +15,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | TikTok No Login Popup | Removes TikTok's "Log in" pop-ups when you're not logged in and turns scrolling back on. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
 | X No App Nag | Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
 | Ad Sweeper | Catch-all ad cleanup on every site: ad slots, sticky ad bars and "ad-free" upsells, labelled mid-article ads, and pop-ups that open on their own. Add `#adsweep-off` to a page address to turn it off for that site (`#adsweep-on` to undo, `#adsweep-debug` to see what it removed). Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
+| Cookie Banner Begone | Answers cookie banners on every site: clicks "Reject all" / "Necessary only" when offered, otherwise hides the banner and unfreezes the page. Never clicks Accept unless you change `ANSWER` at the top. Add `#cookies-off` to a page address to turn it off for that site (`#cookies-on` to undo). Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/cookie-banner-begone.user.js) |
 
 ## Phone
 
@@ -26,6 +27,7 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | TikTok No Login Popup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
 | X No App Nag | Same script as on the computer (use Safari; Brave on iPhone can't run scripts). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
 | Ad Sweeper | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
+| Cookie Banner Begone | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/cookie-banner-begone.user.js) |
 
 ## Updating
 
