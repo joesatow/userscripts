@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Instagram Cleanup
 // @namespace    instagram-scrubber
-// @version      1.4
+// @version      1.5
 // @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, and no "Use the app" bar.
 // @match        https://www.instagram.com/*
 // @run-at       document-idle
@@ -17,7 +17,7 @@
 //   remove it) but placed in the page, so it scrolls along with the video.
 // - Sound on: videos play with sound once you've tapped the page once
 //   (browsers don't allow sound before that). Until then videos wait paused
-//   with a play button, so that one tap starts the video with sound.
+//   (with Instagram's play icon), so that one tap starts the video with sound.
 //   Set SOUND_ON / START_PAUSED to false to stop either.
 // - Hides the "Use the app" bar.
 //
@@ -31,7 +31,7 @@
   const BAR_COLOR = '#ffffff';
   const SHOW_TIME_ALWAYS = false; // true: always show "0:12 / 0:45", not just while scrubbing
   const SOUND_ON = true;          // videos play with sound (after your first tap on the page)
-  const START_PAUSED = true;      // until that first tap, videos wait paused with a play button, so the tap starts it with sound
+  const START_PAUSED = true;      // until that first tap, videos wait paused, so tapping one starts it with sound
   const HIT_HEIGHT = 22;          // touchable height in px (the visible line is thinner)
 
   let debug = false;
@@ -55,14 +55,7 @@
       -webkit-tap-highlight-color: transparent;
     }
     #igs-play.igs-on { display: flex; }
-    #igs-play span {
-      width: 72px; height: 72px; border-radius: 50%; background: rgba(0,0,0,.55);
-      display: flex; align-items: center; justify-content: center; box-shadow: 0 0 8px rgba(0,0,0,.4);
-    }
-    #igs-play span::after {
-      content: ''; margin-left: 6px; border-style: solid; border-width: 15px 0 15px 25px;
-      border-color: transparent transparent transparent #fff;
-    }
+    /* no icon of its own: Instagram already shows a play icon on paused videos */
     #igs-bar .igs-track {
       position: relative; width: 100%; height: 4px;
       background: rgba(255,255,255,.35); box-shadow: 0 0 2px rgba(0,0,0,.4);
@@ -100,11 +93,11 @@
   const time = bar.querySelector('.igs-time');
   document.documentElement.appendChild(bar);
 
-  // Play button shown over a video held paused until your first tap
+  // Invisible tap area over a video held paused until your first tap
+  // (Instagram shows its own play icon there)
   const playBtn = document.createElement('div');
   playBtn.id = 'igs-play';
-  playBtn.innerHTML = '<span></span>';
-  playBtn.setAttribute('aria-label', 'Play with sound');
+    playBtn.setAttribute('aria-label', 'Play with sound');
 
   let dbgBox = null;
   if (debug) {
