@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Instagram Cleanup
 // @namespace    instagram-scrubber
-// @version      1.5
+// @version      1.6
 // @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, and no "Use the app" bar.
 // @match        https://www.instagram.com/*
 // @run-at       document-idle
@@ -49,13 +49,6 @@
       -webkit-tap-highlight-color: transparent;
     }
     #igs-bar.igs-on { display: flex; }
-    #igs-play {
-      position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2147482999;
-      display: none; align-items: center; justify-content: center; cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-    }
-    #igs-play.igs-on { display: flex; }
-    /* no icon of its own: Instagram already shows a play icon on paused videos */
     #igs-bar .igs-track {
       position: relative; width: 100%; height: 4px;
       background: rgba(255,255,255,.35); box-shadow: 0 0 2px rgba(0,0,0,.4);
@@ -93,11 +86,6 @@
   const time = bar.querySelector('.igs-time');
   document.documentElement.appendChild(bar);
 
-  // Invisible tap area over a video held paused until your first tap
-  // (Instagram shows its own play icon there)
-  const playBtn = document.createElement('div');
-  playBtn.id = 'igs-play';
-    playBtn.setAttribute('aria-label', 'Play with sound');
 
   let dbgBox = null;
   if (debug) {
@@ -188,17 +176,15 @@
   }
 
   function place() {
-    if (!target || !target.isConnected) { bar.classList.remove('igs-on'); playBtn.classList.remove('igs-on'); return null; }
+    if (!target || !target.isConnected) { bar.classList.remove('igs-on'); return null; }
     const r = target.getBoundingClientRect();
     // Tuck it away while the video's bottom edge is under a pinned header or tab bar
     if (r.width < 120 || r.bottom - HIT_HEIGHT < topLimit || r.bottom > bottomLimit + 1) {
       bar.classList.remove('igs-on');
-      playBtn.classList.remove('igs-on');
       return r;
     }
     const parent = host || document.documentElement;
-    if (bar.parentNode !== parent || playBtn.parentNode !== parent) {
-      parent.appendChild(playBtn);
+    if (bar.parentNode !== parent) {
       parent.appendChild(bar);
       if (host && getComputedStyle(host).position === 'static') host.style.position = 'relative';
       last = {};
@@ -216,16 +202,6 @@
     setStyle('left', Math.round(left) + 'px');
     setStyle('width', Math.round(r.width) + 'px');
     bar.classList.add('igs-on');
-    if (!tapped && held.has(target) && target.paused) {
-      // the video's box minus the bar strip at the bottom
-      playBtn.style.top = Math.round(top + HIT_HEIGHT - r.height) + 'px';
-      playBtn.style.left = Math.round(left) + 'px';
-      playBtn.style.width = Math.round(r.width) + 'px';
-      playBtn.style.height = Math.max(0, Math.round(r.height - HIT_HEIGHT)) + 'px';
-      playBtn.classList.add('igs-on');
-    } else {
-      playBtn.classList.remove('igs-on');
-    }
     return r;
   }
 
@@ -289,20 +265,6 @@
     document.querySelectorAll('video').forEach((v) => { if (!v.paused) { held.add(v); v.pause(); } });
   }
 
-  // Tapping the play button: start it with sound
-  playBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
-  playBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!e.isTrusted) return;
-    tapped = true;
-    playBtn.classList.remove('igs-on');
-    const v = target;
-    if (!v) return;
-    if (soundWanted && v.muted) unmute(v);
-    release(v);
-  });
-  ['touchstart', 'touchend', 'mousedown', 'mouseup', 'dblclick'].forEach((ev) => playBtn.addEventListener(ev, (e) => e.stopPropagation()));
 
   function soundButtonFor(video) {
     let el = video;
@@ -313,24 +275,54 @@
     return null;
   }
 
-  // Before Instagram sees the tap: note whether the video was muted
+  // Your first tap goes through to Instagram as normal (so its own play
+  // icon and tap-to-play keep working, and it stays in step). Just before
+  // Instagram sees it, sound gets turned on; just after, if the video still
+  // isn't playing, it gets started. So that one tap = playing, with sound.
+  let firstTap = null;   // the video your first tap was for
+  let firstTapAt = 0;
+
+  // Before Instagram sees the tap
   window.addEventListener('click', (e) => {
     if (!e.isTrusted || ourClick) return;
     clickVideo = pick();
+    if (!tapped) {
+      tapped = true;
+      firstTapAt = Date.now();
+      const v = clickVideo;
+      if (v) {
+        firstTap = v;
+        held.delete(v);
+        const btn = soundButtonFor(v);
+        const onSoundButton = btn && btn.contains(e.target);
+        if (soundWanted && v.muted && !onSoundButton) unmute(v);
+        // In case Instagram keeps this tap to itself, finish shortly after anyway
+        setTimeout(() => finishFirstTap(v), 250);
+      }
+      mutedBefore = null;
+      return;
+    }
     mutedBefore = clickVideo ? clickVideo.muted : null;
   }, true);
+
+  function finishFirstTap(v) {
+    if (firstTap !== v) return;
+    firstTap = null;
+    if (soundWanted && v.muted) setMuted(v, false);
+    if (v.paused) v.play().catch(() => {});
+  }
 
   // After Instagram has handled the tap
   window.addEventListener('click', (e) => {
     if (!e.isTrusted || ourClick) return;
-    tapped = true;
     const v = clickVideo;
     clickVideo = null;
+    if (firstTap) { finishFirstTap(firstTap); return; }
     if (!v || mutedBefore === null) return;
     if (!mutedBefore && v.muted) { soundWanted = false; return; }  // you muted it
     if (mutedBefore && !v.muted) soundWanted = true;               // you unmuted it
     else if (soundWanted && v.muted) unmute(v);
-    release(v); // a video held paused starts now
+    release(v);
   });
 
   // New videos: turn sound on as they start, once you've tapped the page.
@@ -364,7 +356,7 @@
     if (mine && mine.muted === v.muted && Date.now() - mine.at < 1000) { ours.delete(v); return; }
     // Changed right after you tapped: that's you using the sound button.
     // Remember it for the next videos.
-    if (Date.now() - lastUserTap < 800 && !ourClickAt() && !v.paused && v.currentTime > 0.3) { soundWanted = !v.muted; return; }
+    if (Date.now() - lastUserTap < 800 && !ourClickAt() && Date.now() - firstTapAt > 1000 && !v.paused && v.currentTime > 0.3) { soundWanted = !v.muted; return; }
     if (v.muted && !v.paused) setTimeout(() => soundOn(v), 0);
   }, true);
   // Instagram's own reaction to the script pressing its sound button
