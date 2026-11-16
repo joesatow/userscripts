@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Instagram Cleanup
 // @namespace    instagram-scrubber
-// @version      1.3
+// @version      1.4
 // @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, and no "Use the app" bar.
 // @match        https://www.instagram.com/*
 // @run-at       document-idle
@@ -16,7 +16,9 @@
 //   It's added outside Instagram's own layout (nothing of theirs can hide or
 //   remove it) but placed in the page, so it scrolls along with the video.
 // - Sound on: videos play with sound once you've tapped the page once
-//   (browsers don't allow sound before that). Set SOUND_ON to false to stop.
+//   (browsers don't allow sound before that). Until then videos wait paused
+//   with a play button, so that one tap starts the video with sound.
+//   Set SOUND_ON / START_PAUSED to false to stop either.
 // - Hides the "Use the app" bar.
 //
 // Bar not showing up? Add #igs-debug to the end of the page address and reload:
@@ -29,6 +31,7 @@
   const BAR_COLOR = '#ffffff';
   const SHOW_TIME_ALWAYS = false; // true: always show "0:12 / 0:45", not just while scrubbing
   const SOUND_ON = true;          // videos play with sound (after your first tap on the page)
+  const START_PAUSED = true;      // until that first tap, videos wait paused with a play button, so the tap starts it with sound
   const HIT_HEIGHT = 22;          // touchable height in px (the visible line is thinner)
 
   let debug = false;
@@ -46,6 +49,20 @@
       -webkit-tap-highlight-color: transparent;
     }
     #igs-bar.igs-on { display: flex; }
+    #igs-play {
+      position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2147482999;
+      display: none; align-items: center; justify-content: center; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #igs-play.igs-on { display: flex; }
+    #igs-play span {
+      width: 72px; height: 72px; border-radius: 50%; background: rgba(0,0,0,.55);
+      display: flex; align-items: center; justify-content: center; box-shadow: 0 0 8px rgba(0,0,0,.4);
+    }
+    #igs-play span::after {
+      content: ''; margin-left: 6px; border-style: solid; border-width: 15px 0 15px 25px;
+      border-color: transparent transparent transparent #fff;
+    }
     #igs-bar .igs-track {
       position: relative; width: 100%; height: 4px;
       background: rgba(255,255,255,.35); box-shadow: 0 0 2px rgba(0,0,0,.4);
@@ -82,6 +99,12 @@
   const knob = bar.querySelector('.igs-knob');
   const time = bar.querySelector('.igs-time');
   document.documentElement.appendChild(bar);
+
+  // Play button shown over a video held paused until your first tap
+  const playBtn = document.createElement('div');
+  playBtn.id = 'igs-play';
+  playBtn.innerHTML = '<span></span>';
+  playBtn.setAttribute('aria-label', 'Play with sound');
 
   let dbgBox = null;
   if (debug) {
@@ -172,15 +195,17 @@
   }
 
   function place() {
-    if (!target || !target.isConnected) { bar.classList.remove('igs-on'); return null; }
+    if (!target || !target.isConnected) { bar.classList.remove('igs-on'); playBtn.classList.remove('igs-on'); return null; }
     const r = target.getBoundingClientRect();
     // Tuck it away while the video's bottom edge is under a pinned header or tab bar
     if (r.width < 120 || r.bottom - HIT_HEIGHT < topLimit || r.bottom > bottomLimit + 1) {
       bar.classList.remove('igs-on');
+      playBtn.classList.remove('igs-on');
       return r;
     }
     const parent = host || document.documentElement;
-    if (bar.parentNode !== parent) {
+    if (bar.parentNode !== parent || playBtn.parentNode !== parent) {
+      parent.appendChild(playBtn);
       parent.appendChild(bar);
       if (host && getComputedStyle(host).position === 'static') host.style.position = 'relative';
       last = {};
@@ -198,6 +223,16 @@
     setStyle('left', Math.round(left) + 'px');
     setStyle('width', Math.round(r.width) + 'px');
     bar.classList.add('igs-on');
+    if (!tapped && held.has(target) && target.paused) {
+      // the video's box minus the bar strip at the bottom
+      playBtn.style.top = Math.round(top + HIT_HEIGHT - r.height) + 'px';
+      playBtn.style.left = Math.round(left) + 'px';
+      playBtn.style.width = Math.round(r.width) + 'px';
+      playBtn.style.height = Math.max(0, Math.round(r.height - HIT_HEIGHT)) + 'px';
+      playBtn.classList.add('igs-on');
+    } else {
+      playBtn.classList.remove('igs-on');
+    }
     return r;
   }
 
@@ -206,6 +241,8 @@
       lastPick = now;
       const t = pick();
       if (t !== target) { target = t; host = t ? scrollerOf(t) : null; }
+      // after your first tap, a video held paused starts when you scroll to it
+      if (tapped && target && held.has(target)) release(target);
       measureEdges();
     }
     const r = place();
@@ -235,6 +272,44 @@
   let mutedBefore = null;
   let clickVideo = null;
   let ourClick = false;
+  const held = new WeakSet(); // videos paused here until your first tap
+
+  // Turn sound on through Instagram's own button (so its icon matches)
+  function unmute(v) {
+    const btn = soundButtonFor(v);
+    if (btn) { ourButtonAt = Date.now(); ourClick = true; try { btn.click(); } catch (err) {} ourClick = false; }
+    if (v.muted) setMuted(v, false);
+  }
+  function release(v) {
+    if (held.has(v)) { held.delete(v); if (v.paused) v.play().catch(() => {}); }
+  }
+
+  // Before your first tap: anything that starts playing waits paused
+  document.addEventListener('play', (e) => {
+    const v = e.target;
+    if (!START_PAUSED || !SOUND_ON || tapped || v.tagName !== 'VIDEO') return;
+    held.add(v);
+    v.pause();
+  }, true);
+  // ...including any that already started before this script loaded
+  if (START_PAUSED && SOUND_ON) {
+    document.querySelectorAll('video').forEach((v) => { if (!v.paused) { held.add(v); v.pause(); } });
+  }
+
+  // Tapping the play button: start it with sound
+  playBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
+  playBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.isTrusted) return;
+    tapped = true;
+    playBtn.classList.remove('igs-on');
+    const v = target;
+    if (!v) return;
+    if (soundWanted && v.muted) unmute(v);
+    release(v);
+  });
+  ['touchstart', 'touchend', 'mousedown', 'mouseup', 'dblclick'].forEach((ev) => playBtn.addEventListener(ev, (e) => e.stopPropagation()));
 
   function soundButtonFor(video) {
     let el = video;
@@ -260,12 +335,9 @@
     clickVideo = null;
     if (!v || mutedBefore === null) return;
     if (!mutedBefore && v.muted) { soundWanted = false; return; }  // you muted it
-    if (mutedBefore && !v.muted) { soundWanted = true; return; }   // you unmuted it
-    if (soundWanted && v.muted) {
-      const btn = soundButtonFor(v);
-      if (btn) { ourButtonAt = Date.now(); ourClick = true; try { btn.click(); } catch (err) {} ourClick = false; }
-      if (v.muted) setMuted(v, false);
-    }
+    if (mutedBefore && !v.muted) soundWanted = true;               // you unmuted it
+    else if (soundWanted && v.muted) unmute(v);
+    release(v); // a video held paused starts now
   });
 
   // New videos: turn sound on as they start, once you've tapped the page.
@@ -380,6 +452,12 @@
     e.stopPropagation();
     dragging = false;
     bar.classList.remove('igs-dragging');
+    // Scrubbing counts as your first tap: start the video, with sound
+    if (!tapped && e.isTrusted && target) {
+      tapped = true;
+      if (soundWanted && target.muted) unmute(target);
+      if (held.has(target)) { release(target); return; }
+    }
     if (wasPlaying && target && target.paused) target.play().catch(() => {});
   };
   bar.addEventListener('pointerup', end);
