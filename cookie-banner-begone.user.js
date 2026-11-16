@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cookie Banner Begone
 // @namespace    cookie-banner-begone
-// @version      1.0
+// @version      1.1
 // @description  Answers cookie banners for you on every site: clicks "Reject all" / "Necessary only" when there is one (so the site saves your answer), otherwise hides the banner and unfreezes the page. Add #cookies-off to a page's address to turn it off for that site.
 // @match        *://*/*
 // @run-at       document-start
@@ -186,8 +186,33 @@
   // Keep only the outermost of nested matches
   const outermost = (list) => list.filter((el) => !list.some((other) => other !== el && other.contains(el)));
 
+  // Banner buttons, used to find banners buried deep in a page under plain
+  // names: start from the button and climb to the box pinned on screen
+  const LOCATE_WORDS = new RegExp(REJECT_WORDS.source.slice(0, -2) + '|accept all|accept all cookies|allow all|allow all cookies|accept cookies|allow cookies)$', 'i');
+  const BUTTONS = 'button, [role="button"], input[type="button"], input[type="submit"], a';
+
+  function findByButtons() {
+    const found = [];
+    for (const btn of document.querySelectorAll(BUTTONS)) {
+      const label = (btn.value || textOf(btn) || btn.getAttribute('aria-label') || '').trim();
+      if (label.length > 40 || !LOCATE_WORDS.test(label)) continue;
+      if (btn.closest('[data-cbb-hidden]')) continue;
+      let el = btn.parentElement;
+      for (let i = 0; el && el !== document.body && i < 15; i++, el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.position === 'fixed' || cs.position === 'sticky' || el.matches('[role="dialog"], [aria-modal="true"], dialog[open]')) {
+          if (isOtherBanner(el) && !found.includes(el)) found.push(el);
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
   function findOtherBanners() {
-    return outermost([...document.querySelectorAll(CANDIDATES)].filter(isOtherBanner));
+    const list = [...document.querySelectorAll(CANDIDATES)].filter(isOtherBanner);
+    findByButtons().forEach((el) => { if (!list.includes(el)) list.push(el); });
+    return outermost(list);
   }
 
   function handleBanner(banner) {
