@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Instagram Scrubber
 // @namespace    instagram-scrubber
-// @version      1.1
-// @description  Adds a progress bar you can drag to Instagram videos on the website (posts, Reels, stories), like the app's: tap or drag to jump, with the time shown while you do.
+// @version      1.2
+// @description  Adds a progress bar you can drag to Instagram videos on the website (posts, Reels, stories), like the app's, and hides the "Use the app" bar.
 // @match        https://www.instagram.com/*
 // @run-at       document-idle
 // @grant        none
@@ -161,6 +161,45 @@
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // ---- Hide "Use the app" bars ----
+  // Find the wording, then hide the smallest box around it that holds only
+  // that bar (its text plus a close X), never the bottom tab bar it sits on.
+  const NAG_TEXT = ['use the app', 'get the app', 'open app', 'open in app', 'use app', 'open instagram'];
+  const NAG_XPATH = '//*[not(self::script or self::style)][' +
+    NAG_TEXT.map((t) => `translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='${t}'`).join(' or ') + ']';
+  const nagWords = (s) => NAG_TEXT.includes(s.replace(/\s+/g, ' ').trim().toLowerCase());
+
+  function hideAppNags() {
+    const hits = document.evaluate(NAG_XPATH, document.body, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    for (let i = 0; i < hits.snapshotLength; i++) {
+      let box = hits.snapshotItem(i);
+      if (box.closest('[data-igs-hidden], #igs-bar')) continue;
+      for (let p = box.parentElement; p && p !== document.body; p = p.parentElement) {
+        if (!nagWords(p.textContent || '')) break;              // holds other words: that's the page/tab bar
+        if (p.querySelectorAll('a[href]').length > 1) break;   // holds other links (tab bar icons)
+        if (p.getBoundingClientRect().height > 160) break;     // bigger than a bar
+        box = p;
+      }
+      box.setAttribute('data-igs-hidden', '');
+    }
+  }
+  style.textContent += '[data-igs-hidden] { display: none !important; }';
+
+  // Check before each redraw when the page changes, so the bar never shows
+  let nagQueued = false;
+  new MutationObserver((records) => {
+    // Anything new mentioning "app": check right now, before it's drawn
+    for (const rec of records) {
+      for (const n of rec.addedNodes) {
+        if (/\bapp\b|instagram/i.test(n.textContent || '')) { try { hideAppNags(); } catch (e) {} return; }
+      }
+    }
+    if (nagQueued) return;
+    nagQueued = true;
+    requestAnimationFrame(() => { nagQueued = false; try { hideAppNags(); } catch (e) {} });
+  }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  hideAppNags();
 
   // ---- Tap / drag to jump ----
   const timeAt = (clientX) => {
