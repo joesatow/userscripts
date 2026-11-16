@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Cookie Banner Begone
 // @namespace    cookie-banner-begone
-// @version      1.1
+// @version      1.2
 // @description  Answers cookie banners for you on every site: clicks "Reject all" / "Necessary only" when there is one (so the site saves your answer), otherwise hides the banner and unfreezes the page. Add #cookies-off to a page's address to turn it off for that site.
 // @match        *://*/*
 // @run-at       document-start
 // @grant        none
 // @inject-into  auto
-// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/cookie-banner-begone.user.js
-// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/cookie-banner-begone.user.js
+// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js
+// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js
 // ==/UserScript==
 
 // Runs in every page and every embedded frame (some cookie pop-ups live in
