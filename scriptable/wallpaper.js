@@ -120,15 +120,53 @@ async function getWeather() {
   };
 }
 
+const TASKS_CACHE = fm.joinPath(fm.documentsDirectory(), "wallpaper-tasks-cache.json");
+
+// Fetch today's tasks, retrying once. Throws an Error whose message says what went wrong.
+async function fetchTasks() {
+  if (!TODOIST_TOKEN || TODOIST_TOKEN.includes("PASTE")) throw new Error("No Todoist token in the loader");
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const req = new Request("https://api.todoist.com/api/v1/tasks/filter?query=" +
+        encodeURIComponent(TASK_FILTER) + "&limit=50");
+      req.headers = { Authorization: `Bearer ${TODOIST_TOKEN}` };
+      req.timeoutInterval = 15;
+      const text = await req.loadString();
+      const code = req.response.statusCode;
+      if (code === 401 || code === 403) throw new Error("Todoist token rejected");
+      if (code === 429) throw new Error("Todoist rate limit");
+      if (code !== 200) throw new Error(`Todoist error ${code}`);
+      const tasks = JSON.parse(text).results || [];
+      // Priority 4 = p1 in Todoist's API. Sort by priority, then time.
+      tasks.sort((a, b) => (b.priority - a.priority) ||
+        String(a.due?.datetime || a.due?.date || "").localeCompare(String(b.due?.datetime || b.due?.date || "")));
+      return tasks;
+    } catch (e) {
+      lastErr = e;
+      if (/token|rate/.test(e.message)) break; // retrying won't help
+    }
+  }
+  throw new Error(/Todoist|token/.test(lastErr?.message || "") ? lastErr.message : "Todoist unreachable");
+}
+
+// Returns { tasks, note }. On failure, falls back to the last good list and says how old it is.
 async function getTasks() {
-  const req = new Request("https://api.todoist.com/api/v1/tasks/filter?query=" +
-    encodeURIComponent(TASK_FILTER) + "&limit=50");
-  req.headers = { Authorization: `Bearer ${TODOIST_TOKEN}` };
-  const res = await req.loadJSON();
-  const tasks = res.results || [];
-  // Priority 4 = p1 in Todoist's API. Sort by priority, then time.
-  tasks.sort((a, b) => (b.priority - a.priority) ||
-    String(a.due?.datetime || a.due?.date || "").localeCompare(String(b.due?.datetime || b.due?.date || "")));
+  let tasks;
+  try {
+    tasks = await fetchTasks();
+    try { fm.writeString(TASKS_CACHE, JSON.stringify({ at: Date.now(), tasks })); } catch (e) {}
+  } catch (e) {
+    let cached;
+    try { cached = JSON.parse(fm.readString(TASKS_CACHE)); } catch (_) {}
+    const sameDay = cached && new Date(cached.at).toDateString() === new Date().toDateString();
+    if (!sameDay) throw e;
+    const tf = new DateFormatter(); tf.dateFormat = "h:mm a";
+    tasks = cached.tasks;
+    e.message += ` · tasks from ${tf.string(new Date(cached.at))}`;
+    e.cachedTasks = tasks;
+    throw e;
+  }
   return tasks;
 }
 
@@ -162,7 +200,10 @@ async function render() {
 
   let weather, tasks, err = "";
   try { weather = await getWeather(); } catch (e) { err += "Weather unavailable. "; }
-  try { tasks = await getTasks(); } catch (e) { err += "Todoist unavailable."; }
+  try { tasks = await getTasks(); } catch (e) {
+    err += e.message;
+    if (e.cachedTasks) tasks = e.cachedTasks; // show the last good list instead of nothing
+  }
 
   const white = Color.white(), dim = new Color("#ffffff", 0.6), faint = new Color("#ffffff", 0.12);
   const left = 90 * s, width = W - 180 * s;
