@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.8
-// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads).
+// @version      1.9
+// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) and folds up Community highlights.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
 // @match        https://old.reddit.com/*
@@ -23,6 +23,7 @@
   // Cards to remove anywhere on the page
   const ANYWHERE_SECTIONS = ['recent posts'];
 
+  const FOLD_HIGHLIGHTS = true; // "Community highlights" starts folded up (tap to open)
   const HIDE_ADS = true; // promoted posts in feeds, ads in comments and the sidebar
 
   // Home page and its sort tabs
@@ -49,7 +50,10 @@
     xpromo-app-selector,
     xpromo-untagged-content-blocking-modal,
     shreddit-async-loader[bundlename*="app_selector" i] { display: none !important; }
-  ` + (HIDE_ADS ? `
+  ` + (FOLD_HIGHLIGHTS ? `
+    /* Keep the highlight cards out of sight until they've been folded up */
+    details:not([data-rnf-folded]) community-highlight-carousel { display: none !important; }
+  ` : '') + (HIDE_ADS ? `
     /* Ads: hidden before they're drawn. The line after an ad goes too, so
        there's no doubled divider where it was. */
     shreddit-ad-post,
@@ -118,6 +122,7 @@
 
       const host = el.getRootNode().host; // set when inside a shadow section
       if (HIDE_ADS && (text === 'ad' || text === 'promoted' || text === 'sponsored')) { hideAdPost(el, host); continue; }
+      if (FOLD_HIGHLIGHTS && text === 'community highlights') { foldHighlights(el, host); continue; }
       let match = ANYWHERE_SECTIONS.includes(text);
       if (!match && LEFT_SECTIONS.includes(text) && inLeftSidebar(el, host)) match = true;
       if (!match || isProtected(el)) continue;
@@ -142,6 +147,23 @@
     post.setAttribute('data-rnf-hidden', '');
     const next = post.nextElementSibling;
     if (next && next.matches('hr')) next.setAttribute('data-rnf-hidden', '');
+  }
+
+  // Fold "Community highlights" once per page; opening it yourself sticks
+  function foldHighlights(el, host) {
+    const details = el.closest('details') || host?.closest('details');
+    if (details) {
+      if (details.hasAttribute('data-rnf-folded')) return;
+      details.open = false;
+      details.setAttribute('data-rnf-folded', '');
+      return;
+    }
+    // Not a standard fold-out: press its own collapse button once
+    const toggle = el.closest('button, [role="button"], [aria-expanded]') || host?.closest('button, [role="button"], [aria-expanded]');
+    if (!toggle || toggle.hasAttribute('data-rnf-folded')) return;
+    toggle.setAttribute('data-rnf-folded', '');
+    const btn = toggle.matches('[aria-expanded]') ? toggle : toggle.querySelector('[aria-expanded]') || toggle;
+    if (btn.getAttribute('aria-expanded') !== 'false') btn.click();
   }
 
   // ---- Remove leftover divider lines in the left sidebar ----
