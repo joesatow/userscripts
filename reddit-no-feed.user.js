@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.13
+// @version      1.14
 // @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) folds up Community highlights, removes Suggested communities, and takes Trending, Trending communities and the AI Ask button out of search.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
@@ -32,6 +32,16 @@
   // Home page and its sort tabs
   const HOME_PATHS = ['/', '/best', '/hot', '/new', '/top', '/rising', '/home'];
 
+  // Diagnostic mode: add #rnf-debug to a Reddit address. Instead of vanishing,
+  // things this script hides by itself get a red outline and a label saying
+  // why (things hidden by style rules alone still vanish). #rnf-nodebug ends it.
+  let DEBUG = false;
+  try {
+    if (location.hash.includes('rnf-debug')) sessionStorage.setItem('rnf-debug', '1');
+    if (location.hash.includes('rnf-nodebug')) sessionStorage.removeItem('rnf-debug');
+    DEBUG = sessionStorage.getItem('rnf-debug') === '1';
+  } catch (e) { DEBUG = location.hash.includes('rnf-debug'); }
+
   // ---- Styles ----
   // display:none (not just invisible) so the endless-scroll trigger is removed
   // from the page and Reddit stops loading more posts in the background.
@@ -46,6 +56,11 @@
     html.rnf-hide [id^="right-sidebar"],
     html.rnf-hide recent-posts { display: none !important; }
     [data-rnf-hidden] { display: none !important; }
+  ` + (DEBUG ? `
+    [data-rnf-hidden] { display: revert !important; outline: 2px solid red !important; position: relative; }
+    [data-rnf-hidden]::before { content: 'hidden: ' attr(data-rnf-hidden); position: absolute; z-index: 9999; top: 0; left: 0;
+      background: red; color: #fff; font: 600 11px/1.3 system-ui; padding: 1px 4px; pointer-events: none; }
+  ` : '') + `
 
     /* Phone: "Open in app" / "Use the app" prompts */
     [bundlename*="xpromo" i],
@@ -142,7 +157,7 @@
       if (!match || isProtected(el)) continue;
 
       const section = host || el.closest(SECTION) || el.parentElement?.parentElement;
-      if (section && section !== document.body && !isProtected(section)) section.setAttribute('data-rnf-hidden', '');
+      if (section && section !== document.body && !isProtected(section)) section.setAttribute('data-rnf-hidden', 'section: ' + text);
     }
   }
 
@@ -158,9 +173,9 @@
     let box = post;
     while (box.parentElement && box.parentElement.matches('article, faceplate-tracker, shreddit-post') && box.parentElement.childElementCount === 1) box = box.parentElement;
     post = box;
-    post.setAttribute('data-rnf-hidden', '');
+    post.setAttribute('data-rnf-hidden', 'ad post');
     const next = post.nextElementSibling;
-    if (next && next.matches('hr')) next.setAttribute('data-rnf-hidden', '');
+    if (next && next.matches('hr')) next.setAttribute('data-rnf-hidden', 'line after ad');
   }
 
   // ---- Search box: no AI "Ask" button, no Trending lists ----
@@ -264,8 +279,15 @@
   function looksLikeDivider(node) {
     const isHr = node.matches('hr, [role="separator"]');
     if (!isHr && (node.childElementCount > 0 || node.textContent.trim() || node.matches(NOT_DIVIDERS))) return false;
+    if (!inLeftNav(node)) return false; // only the left sidebar (on phones everything is near the left edge)
     const r = node.getBoundingClientRect();
     return r.width > 100 && r.height > 0 && r.height <= 4 && r.left < 320;
+  }
+
+  function inLeftNav(node) {
+    if (node.closest(LEFT_NAV)) return true;
+    for (let h = node.getRootNode().host; h; h = h.getRootNode().host) if (h.closest(LEFT_NAV)) return true;
+    return false;
   }
 
   function tidyDividers() {
@@ -276,12 +298,22 @@
 
     for (let i = 0; i < visible.length - 1; i++) {
       const gap = visible[i + 1].r.top - visible[i].r.bottom;
-      if (gap < 70) visible[i].d.setAttribute('data-rnf-hidden', '');
+      if (gap < 70) visible[i].d.setAttribute('data-rnf-hidden', 'divider');
     }
+  }
+
+  // An empty box taken for a divider that has since filled with content
+  // (Reddit sometimes builds a box empty and fills it a moment later)
+  function unhideFilled(root) {
+    for (const el of root.querySelectorAll('[data-rnf-hidden="divider"]')) {
+      if (el.childElementCount > 0 || el.textContent.trim()) el.removeAttribute('data-rnf-hidden');
+    }
+    for (const el of root.querySelectorAll('*')) if (el.shadowRoot) unhideFilled(el.shadowRoot);
   }
 
   function hideSections() {
     if (!document.body) return;
+    unhideFilled(document);
     dividers = [];
     scan(document.body);
     tidyDividers();
