@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Instagram Cleanup
 // @namespace    instagram-scrubber
-// @version      1.8
+// @version      1.9
 // @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, no "Use the app" bar, and no Home or Reels buttons in the tab bar, and no unread-message count.
 // @match        https://www.instagram.com/*
-// @run-at       document-idle
+// @run-at       document-start
 // @grant        none
 // @inject-into  auto
 // @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/instagram-cleanup.user.js
@@ -38,6 +38,32 @@
   const START_PAUSED = true;      // until that first tap, videos wait paused, so tapping one starts it with sound
   const HIT_HEIGHT = 22;          // touchable height in px (the visible line is thinner)
 
+  // ---- Right away, before the page draws anything ----
+  // Phone-width layout only (that's where the bottom tab bar is). Hides the
+  // chosen tab buttons, and the box each one sits in, so the old tab bar
+  // never flashes. The script's checks below tidy up anything this misses.
+  {
+    const labels = { home: ['/', 'Home'], reels: ['/reels/', 'Reels'], explore: ['/explore/', 'Search and explore'] };
+    const rules = [];
+    for (const name of HIDE_TABS) {
+      const t = labels[name];
+      if (!t) continue;
+      const icon = `a[href="${t[0]}"] svg[aria-label="${t[1]}"]`;
+      const onlyThis = `:not(:has(a[href]:not([href="${t[0]}"])))`;
+      rules.push(`a[href="${t[0]}"]:has(svg[aria-label="${t[1]}"])`,
+        `:is(div,span,li):has(> ${icon})${onlyThis}`,
+        `:is(div,span,li):has(> * > ${icon})${onlyThis}`,
+        `:is(div,span,li):has(> * > * > ${icon})${onlyThis}`);
+    }
+    // the unread number inside the Messages button (anything there that isn't its icon)
+    if (HIDE_MESSAGE_COUNT) rules.push('a[href^="/direct/"] :is(span, div):not(:has(svg)):not(svg *)');
+    const early = document.createElement('style');
+    // one rule each, so a browser that rejects one still uses the rest
+    early.textContent = rules.map((r) => `@media (max-width: 767px) { ${r} { display: none !important; } }`).join('\n');
+    (document.head || document.documentElement).appendChild(early);
+  }
+
+  function main() {
   let debug = false;
   try {
     if (location.hash.includes('igs-debug')) sessionStorage.setItem('igs-debug', '1');
@@ -428,7 +454,7 @@
       for (let i = 0; i < 3 && slot.parentElement &&
            slot.parentElement.querySelectorAll('a[href], [role="link"]').length <= 1; i++) slot = slot.parentElement;
       for (const el of slot.querySelectorAll('span, div')) {
-        if (el.closest('[data-igs-hidden]') || el.children.length > 1) continue;
+        if (el.closest('[data-igs-hidden]') || el.querySelector('svg, img')) continue; // the icon's box, not the badge
         if (!COUNT.test((el.textContent || '').trim())) continue;
         let badge = el;
         while (badge.parentElement && badge.parentElement !== slot && badge.parentElement !== link &&
@@ -524,4 +550,6 @@
   // Keep taps on the bar away from Instagram (tap-to-pause / mute / like)
   ['click', 'mousedown', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'dblclick']
     .forEach((ev) => bar.addEventListener(ev, (e) => { e.stopPropagation(); if (ev.startsWith('touch')) e.preventDefault(); }, { passive: false }));
+  }
+  if (document.body) main(); else document.addEventListener('DOMContentLoaded', main, { once: true });
 })();
