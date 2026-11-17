@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.7
-// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections.
+// @version      1.8
+// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads).
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
 // @match        https://old.reddit.com/*
@@ -22,6 +22,8 @@
   const LEFT_SECTIONS = ['games on reddit', 'custom feeds', 'recent'];
   // Cards to remove anywhere on the page
   const ANYWHERE_SECTIONS = ['recent posts'];
+
+  const HIDE_ADS = true; // promoted posts in feeds, ads in comments and the sidebar
 
   // Home page and its sort tabs
   const HOME_PATHS = ['/', '/best', '/hot', '/new', '/top', '/rising', '/home'];
@@ -47,7 +49,22 @@
     xpromo-app-selector,
     xpromo-untagged-content-blocking-modal,
     shreddit-async-loader[bundlename*="app_selector" i] { display: none !important; }
-  `;
+  ` + (HIDE_ADS ? `
+    /* Ads: hidden before they're drawn. The line after an ad goes too, so
+       there's no doubled divider where it was. */
+    shreddit-ad-post,
+    shreddit-comments-page-ad,
+    shreddit-comment-tree-ad,
+    shreddit-sidebar-ad,
+    shreddit-dynamic-ad-link,
+    [data-faceplate-tracking-context*='"promoted":true'],
+    div[data-before-content="advertisement"],
+    .promotedlink,
+    .native-ad-container,
+    shreddit-ad-post + hr,
+    article:has(> shreddit-ad-post),
+    article:has(> shreddit-ad-post) + hr { display: none !important; }
+  ` : '');
   (document.head || document.documentElement).appendChild(style);
 
   function isFeed() {
@@ -100,6 +117,7 @@
       if (!el || el.closest('[data-rnf-hidden]')) continue;
 
       const host = el.getRootNode().host; // set when inside a shadow section
+      if (HIDE_ADS && (text === 'ad' || text === 'promoted' || text === 'sponsored')) { hideAdPost(el, host); continue; }
       let match = ANYWHERE_SECTIONS.includes(text);
       if (!match && LEFT_SECTIONS.includes(text) && inLeftSidebar(el, host)) match = true;
       if (!match || isProtected(el)) continue;
@@ -107,6 +125,23 @@
       const section = host || el.closest(SECTION) || el.parentElement?.parentElement;
       if (section && section !== document.body && !isProtected(section)) section.setAttribute('data-rnf-hidden', '');
     }
+  }
+
+  // Backup for ads the style rules miss: a post whose header says "Ad" or
+  // "Promoted" (only the small label near the top, never a post's title or text)
+  const POST = 'shreddit-post, shreddit-ad-post, article, [data-testid="post-container"], .thing';
+  function hideAdPost(el, host) {
+    let post = el.closest(POST) || host?.closest(POST);
+    if (!post || isProtected(post) || el.closest('h1, h2, h3, [slot="title"], [slot="text-body"], p')) return;
+    const pr = post.getBoundingClientRect(), lr = el.getBoundingClientRect();
+    if (lr.top - pr.top > 120) return; // not in the post's header
+    // the post's own wrapper too, so no empty gap or doubled divider is left
+    let box = post;
+    while (box.parentElement && box.parentElement.matches('article, faceplate-tracker, shreddit-post') && box.parentElement.childElementCount === 1) box = box.parentElement;
+    post = box;
+    post.setAttribute('data-rnf-hidden', '');
+    const next = post.nextElementSibling;
+    if (next && next.matches('hr')) next.setAttribute('data-rnf-hidden', '');
   }
 
   // ---- Remove leftover divider lines in the left sidebar ----
