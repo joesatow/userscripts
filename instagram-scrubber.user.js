@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Instagram Cleanup
 // @namespace    instagram-scrubber
-// @version      1.6
-// @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, and no "Use the app" bar.
+// @version      1.8
+// @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, no "Use the app" bar, and no Home or Reels buttons in the tab bar, and no unread-message count.
 // @match        https://www.instagram.com/*
 // @run-at       document-idle
 // @grant        none
@@ -19,7 +19,9 @@
 //   (browsers don't allow sound before that). Until then videos wait paused
 //   (with Instagram's play icon), so that one tap starts the video with sound.
 //   Set SOUND_ON / START_PAUSED to false to stop either.
-// - Hides the "Use the app" bar.
+// - Hides the "Use the app" bar, and the Home and Reels buttons in the
+//   bottom tab bar (change HIDE_TABS to pick which), and the unread count
+//   on the Messages button.
 //
 // Bar not showing up? Add #igs-debug to the end of the page address and reload:
 // a small box shows whether the script is running and what it sees.
@@ -30,6 +32,8 @@
   // ---- Settings ----
   const BAR_COLOR = '#ffffff';
   const SHOW_TIME_ALWAYS = false; // true: always show "0:12 / 0:45", not just while scrubbing
+  const HIDE_TABS = ['home', 'reels']; // bottom tab bar buttons to remove (also: 'explore', 'messages')
+  const HIDE_MESSAGE_COUNT = true;    // remove the unread-count badge on the Messages button
   const SOUND_ON = true;          // videos play with sound (after your first tap on the page)
   const START_PAUSED = true;      // until that first tap, videos wait paused, so tapping one starts it with sound
   const HIT_HEIGHT = 22;          // touchable height in px (the visible line is thinner)
@@ -373,6 +377,69 @@
     NAG_TEXT.map((t) => `translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='${t}'`).join(' or ') + ']';
   const nagWords = (s) => NAG_TEXT.includes(s.replace(/\s+/g, ' ').trim().toLowerCase());
 
+  // ---- Bottom tab bar: remove chosen buttons ----
+  const TAB_LINKS = {
+    home: 'a[href="/"]',
+    reels: 'a[href="/reels/"], a[href^="/reels/?"]',
+    explore: 'a[href="/explore/"]',
+    messages: 'a[href^="/direct/"]',
+  };
+  const TAB_LABELS = { home: 'Home', reels: 'Reels', explore: 'Explore', messages: 'Direct' };
+  const pinnedBottomBar = (el) => {
+    for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+      const pos = getComputedStyle(p).position;
+      if (pos === 'fixed' || pos === 'sticky') {
+        const r = p.getBoundingClientRect();
+        // the tab bar: wide, short, along the bottom of the screen
+        return r.bottom >= innerHeight - 4 && r.width > innerWidth * 0.6 && r.height < 140 ? p : null;
+      }
+    }
+    return null;
+  };
+  function hideNavTabs() {
+    for (const name of HIDE_TABS) {
+      const links = new Set(document.querySelectorAll(TAB_LINKS[name] || 'x-none'));
+      if (TAB_LABELS[name]) {
+        document.querySelectorAll(`svg[aria-label="${TAB_LABELS[name]}"]`).forEach((svg) => {
+          const a = svg.closest('a, [role="link"], [role="button"]');
+          if (a) links.add(a);
+        });
+      }
+      for (const link of links) {
+        if (link.closest('[data-igs-hidden]')) continue;
+        const nav = pinnedBottomBar(link);
+        if (!nav) continue; // only the bottom tab bar, not links elsewhere on the page
+        // Hide the whole tab slot so the remaining buttons spread out evenly
+        let tab = link;
+        while (tab.parentElement && tab.parentElement !== nav &&
+               tab.parentElement.querySelectorAll('a[href], [role="link"]').length <= 1) tab = tab.parentElement;
+        tab.setAttribute('data-igs-hidden', '');
+      }
+    }
+    if (HIDE_MESSAGE_COUNT) hideMessageCount();
+  }
+
+  // The red number on the Messages button (in the tab bar or the side menu)
+  const COUNT = /^\d{1,3}\+?$/;
+  function hideMessageCount() {
+    for (const link of document.querySelectorAll('a[href^="/direct/"]')) {
+      // the button's own box: the link plus anything sitting beside it in its slot
+      let slot = link;
+      for (let i = 0; i < 3 && slot.parentElement &&
+           slot.parentElement.querySelectorAll('a[href], [role="link"]').length <= 1; i++) slot = slot.parentElement;
+      for (const el of slot.querySelectorAll('span, div')) {
+        if (el.closest('[data-igs-hidden]') || el.children.length > 1) continue;
+        if (!COUNT.test((el.textContent || '').trim())) continue;
+        let badge = el;
+        while (badge.parentElement && badge.parentElement !== slot && badge.parentElement !== link &&
+               (badge.parentElement.textContent || '').trim() === el.textContent.trim() &&
+               !badge.parentElement.querySelector('svg')) badge = badge.parentElement;
+        badge.setAttribute('data-igs-hidden', '');
+      }
+    }
+  }
+  const TAB_HINT = 'a[href="/"], a[href^="/reels/"], a[href^="/direct/"], a[href="/explore/"], svg[aria-label="Home"], svg[aria-label="Reels"]';
+
   function hideAppNags() {
     const hits = document.evaluate(NAG_XPATH, document.body, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
     for (let i = 0; i < hits.snapshotLength; i++) {
@@ -395,14 +462,21 @@
     // Anything new mentioning "app": check right now, before it's drawn
     for (const rec of records) {
       for (const n of rec.addedNodes) {
-        if (/\bapp\b|instagram/i.test(n.textContent || '')) { try { hideAppNags(); } catch (e) {} return; }
+        if (/\bapp\b|instagram/i.test(n.textContent || '')) { try { hideAppNags(); } catch (e) {} }
+        // Tab bar redrawn, or a new message count: tidy it before it's drawn
+        if ((n.nodeType === 1 && (n.matches(TAB_HINT) || n.querySelector(TAB_HINT) || (n.closest && n.closest('a[href^="/direct/"]')))) ||
+            COUNT.test((n.textContent || '').trim())) {
+          try { hideNavTabs(); } catch (e) {}
+          return;
+        }
       }
     }
     if (nagQueued) return;
     nagQueued = true;
-    requestAnimationFrame(() => { nagQueued = false; try { hideAppNags(); } catch (e) {} });
+    requestAnimationFrame(() => { nagQueued = false; try { hideAppNags(); } catch (e) {} try { hideNavTabs(); } catch (e) {} });
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
   hideAppNags();
+  hideNavTabs();
 
   // ---- Tap / drag to jump ----
   const timeAt = (clientX) => {
