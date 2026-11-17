@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.12
+// @version      1.13
 // @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) folds up Community highlights, removes Suggested communities, and takes Trending, Trending communities and the AI Ask button out of search.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
@@ -297,12 +297,25 @@
 
   apply();
   setInterval(apply, 400);
+  // Tapping into search: make sure its newest parts are handled at once
+  ['pointerdown', 'focusin'].forEach((ev) => document.addEventListener(ev, () => tidySearch(), true));
   // As the page builds: fold the highlights box as soon as it's ready (it
   // stays hidden until then) and tidy the search box, before they're drawn
   {
     let queued = false;
-    new MutationObserver(() => {
-      tidySearch(); // right away, before anything new is drawn
+    const ASK_SEL = ASK_SETTINGS.map((x) => `[${x}]`).join(',');
+    new MutationObserver((records) => {
+      // Right away, before anything new is drawn, but only looking at what's
+      // new (re-checking the whole page on every change slows loading)
+      let search = false;
+      for (const rec of records) {
+        if (rec.type === 'attributes') { if (rec.target.localName.includes('search')) search = true; continue; }
+        for (const n of rec.addedNodes) {
+          if (n.nodeType === 1 && (n.matches(SEARCH_HOSTS) || n.matches(ASK_SEL) || n.querySelector(SEARCH_HOSTS + ',' + ASK_SEL))) { search = true; break; }
+        }
+        if (search) break;
+      }
+      if (search) tidySearch();
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
