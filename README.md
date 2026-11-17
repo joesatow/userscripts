@@ -31,6 +31,14 @@ Click an **Install** link with Tampermonkey turned on (or paste the link into Ta
 | Cookie Banner Begone | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js) |
 | Instagram Cleanup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/instagram-cleanup.user.js) |
 
+## Scriptable (iPhone)
+
+| Script | What it does | Install |
+| --- | --- | --- |
+| Lock-screen wallpaper | Draws today's weather (with the next few hours) and your Todoist tasks for today onto your own wallpaper photo, for an iPhone Shortcuts automation to set as the lock screen. | Paste [wallpaper-loader.js](scriptable/wallpaper-loader.js) into [Scriptable](https://apps.apple.com/app/scriptable/id1405459188) and add your Todoist API token |
+
+The loader downloads [wallpaper.js](scriptable/wallpaper.js) from this repo on every run, so changes pushed here show up on the next run (GitHub can take up to about 5 minutes to serve a new version). Your Todoist token stays in the loader on the phone and is never in this repo. In the Shortcuts app: **Run Script** (Wallpaper, Show When Run off) → **Base64 Decode** → **Set Wallpaper Photo** (Lock Screen, Show Preview off).
+
 ## Updating
 
 Tampermonkey checks for updates about once a day and installs a new version when `@version` goes up. To get one right away: click the Tampermonkey icon in the browser toolbar → **Check for userscript updates**.
