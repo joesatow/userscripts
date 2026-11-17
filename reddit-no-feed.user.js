@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.9
+// @version      1.10
 // @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) and folds up Community highlights.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
@@ -51,7 +51,8 @@
     xpromo-untagged-content-blocking-modal,
     shreddit-async-loader[bundlename*="app_selector" i] { display: none !important; }
   ` + (FOLD_HIGHLIGHTS ? `
-    /* Keep the highlight cards out of sight until they've been folded up */
+    /* Keep Community highlights out of sight until it's been folded up */
+    community-highlight-carousel:not([data-rnf-folded]),
     details:not([data-rnf-folded]) community-highlight-carousel { display: none !important; }
   ` : '') + (HIDE_ADS ? `
     /* Ads: hidden before they're drawn. The line after an ad goes too, so
@@ -149,8 +150,26 @@
     if (next && next.matches('hr')) next.setAttribute('data-rnf-hidden', '');
   }
 
+  // Reddit's Community highlights box: press its own fold button once
+  // (the button lives inside the box's sealed-off section)
+  function foldCarousels() {
+    for (const c of document.querySelectorAll('community-highlight-carousel:not([data-rnf-folded])')) {
+      const btn = c.shadowRoot && (c.shadowRoot.querySelector('button[aria-expanded]') || c.shadowRoot.querySelector('button'));
+      const started = +(c.dataset.rnfSeen || (c.dataset.rnfSeen = Date.now()));
+      if (!btn && c.closest('details[data-rnf-folded]')) { c.setAttribute('data-rnf-folded', ''); continue; } // folded as a fold-out already
+      if (!btn) {
+        // not built yet; after 4s give up and just show it as Reddit made it
+        if (Date.now() - started > 4000) c.setAttribute('data-rnf-folded', '');
+        continue;
+      }
+      if (btn.getAttribute('aria-expanded') !== 'false') btn.click();
+      c.setAttribute('data-rnf-folded', '');
+    }
+  }
+
   // Fold "Community highlights" once per page; opening it yourself sticks
   function foldHighlights(el, host) {
+    if (host && host.closest('community-highlight-carousel')) return; // handled by foldCarousels
     const details = el.closest('details') || host?.closest('details');
     if (details) {
       if (details.hasAttribute('data-rnf-folded')) return;
@@ -203,10 +222,20 @@
   // Reddit changes pages without full reloads, so keep checking
   function apply() {
     document.documentElement.classList.toggle('rnf-hide', isFeed());
+    if (FOLD_HIGHLIGHTS) foldCarousels();
     hideSections();
   }
 
   apply();
   setInterval(apply, 400);
+  // Fold the highlights box as soon as it's ready (it stays hidden until then)
+  if (FOLD_HIGHLIGHTS) {
+    let queued = false;
+    new MutationObserver(() => {
+      if (queued || !document.querySelector('community-highlight-carousel:not([data-rnf-folded])')) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; foldCarousels(); });
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  }
   window.addEventListener('popstate', apply);
 })();
