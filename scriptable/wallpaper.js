@@ -213,12 +213,17 @@ async function render() {
   // "Updated" time (or what failed), shown at the top right of the weather
   const drawUpdated = (yy) => {
     ctx.setTextAlignedRight();
-    ctx.setTextColor(err ? new Color("#ff8a80") : new Color("#ffffff", 0.55));
+    ctx.setTextColor(new Color("#ffffff", 0.55));
     ctx.setFont(Font.mediumSystemFont(32 * s));
-    ctx.drawTextInRect(err || `Updated ${df.string(new Date())}`, new Rect(left, yy, width, 46 * s));
+    ctx.drawTextInRect(`Updated ${df.string(new Date())}`, new Rect(left, yy, width, 46 * s));
+    if (err) { // problems go on a second line, in red, so the time is always visible
+      ctx.setTextColor(new Color("#ff8a80"));
+      ctx.setFont(Font.mediumSystemFont(27 * s));
+      ctx.drawTextInRect(err.trim(), new Rect(left, yy + 44 * s, width, 40 * s));
+    }
     ctx.setTextAlignedLeft();
   };
-  if (!weather) { drawUpdated(y); y += 70 * s; }
+  if (!weather) { drawUpdated(y); y += (err ? 100 : 70) * s; }
 
   // weather
   if (weather) {
