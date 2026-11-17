@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.11
-// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) folds up Community highlights, and removes Suggested communities.
+// @version      1.12
+// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) folds up Community highlights, removes Suggested communities, and takes Trending, Trending communities and the AI Ask button out of search.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
 // @match        https://old.reddit.com/*
@@ -25,6 +25,8 @@
 
   const FOLD_HIGHLIGHTS = true; // "Community highlights" starts folded up (tap to open)
   const HIDE_SUGGESTED = true; // "Suggested communities" boxes in feeds (kept on the Explore page)
+  const SEARCH_NO_TRENDING = true; // no Trending list in the search box
+  const SEARCH_NO_ASK = true;      // no AI "Ask" button in the search box
   const HIDE_ADS = true; // promoted posts in feeds, ads in comments and the sidebar
 
   // Home page and its sort tabs
@@ -52,6 +54,13 @@
     xpromo-untagged-content-blocking-modal,
     shreddit-async-loader[bundlename*="app_selector" i] { display: none !important; }
   ` + (FOLD_HIGHLIGHTS ? `
+    /* Search lists, when they aren't inside the search box's own section */
+    #reddit-trending-searches-partial-container [id$="trending_query"],
+    #reddit-trending-searches-partial-container [id$="trending_query"] ~ li,
+    #reddit-trending-searches-partial-container #subreddit_typeahead_section,
+    #reddit-trending-searches-partial-container #subreddit_typeahead_section ~ search-telemetry-tracker,
+    .expanded-composer-ask-pill { display: none !important; }
+
     /* Keep Community highlights out of sight until it's been folded up */
     community-highlight-carousel:not([data-rnf-folded]),
     details:not([data-rnf-folded]) community-highlight-carousel { display: none !important; }
@@ -154,6 +163,61 @@
     if (next && next.matches('hr')) next.setAttribute('data-rnf-hidden', '');
   }
 
+  // ---- Search box: no AI "Ask" button, no Trending lists ----
+  // Reddit's search box is built from sealed-off sections (some nested inside
+  // others) that page-wide styles can't reach, so a small style rule is put
+  // inside each one as it's built. Only the empty-search list is touched:
+  // Trending and Trending communities go, your Recent searches stay, and
+  // nothing changes once you start typing.
+  const ASK_SETTINGS = ['show-ask-button', 'ask-button-variant', 'show-ask-text', 'expanded-composer-enabled', 'expanded-composer-ask-enabled'];
+  const SEARCH_HOSTS = 'reddit-search-large, reddit-search-small, faceplate-search-input';
+  const LIST = '#reddit-trending-searches-partial-container';
+  const SEARCH_CSS = [
+    SEARCH_NO_ASK && `
+    .expanded-composer-ask-pill,
+    rpl-tooltip:has(> .expanded-composer-ask-pill),
+    hr.trailing-divider,
+    .trailing-content-container,
+    faceplate-tracker:has(a[href="/answers/"]) { display: none !important; }`,
+    SEARCH_NO_TRENDING && `
+    ${LIST} [id$="trending_query"],
+    ${LIST} [id$="trending_query"] ~ li,
+    ${LIST} div:has(> [icon-name="rising-outline"]),
+    ${LIST} > div > search-telemetry-tracker,
+    ${LIST} #subreddit_typeahead_section,
+    ${LIST} #subreddit_typeahead_section ~ search-telemetry-tracker { display: none !important; }`,
+  ].filter(Boolean).join('\n');
+
+  const styledRoots = new WeakSet();
+  function styleRoot(root) {
+    if (!styledRoots.has(root)) {
+      styledRoots.add(root);
+      const st = document.createElement('style');
+      st.textContent = SEARCH_CSS;
+      root.prepend(st);
+      // Parts of the search box get built later (when you tap it): handle
+      // those the moment they appear, before they're drawn
+      new MutationObserver(() => {
+        if (!st.isConnected) root.prepend(st); // the section rebuilt itself: put the rule back
+        styleInside(root);
+      }).observe(root, { childList: true, subtree: true });
+    }
+    styleInside(root);
+  }
+  function styleInside(root) {
+    for (const el of root.querySelectorAll('*')) if (el.shadowRoot) styleRoot(el.shadowRoot);
+  }
+
+  function tidySearch() {
+    if (SEARCH_NO_ASK) {
+      for (const el of document.querySelectorAll(ASK_SETTINGS.map((a) => `[${a}]`).join(','))) {
+        if (!el.localName.includes('search')) continue; // only search boxes
+        ASK_SETTINGS.forEach((a) => el.removeAttribute(a));
+      }
+    }
+    if (SEARCH_CSS) for (const el of document.querySelectorAll(SEARCH_HOSTS)) if (el.shadowRoot && !styledRoots.has(el.shadowRoot)) styleRoot(el.shadowRoot);
+  }
+
   // Reddit's Community highlights box: press its own fold button once
   // (the button lives inside the box's sealed-off section)
   function foldCarousels() {
@@ -227,19 +291,25 @@
   function apply() {
     document.documentElement.classList.toggle('rnf-hide', isFeed());
     if (FOLD_HIGHLIGHTS) foldCarousels();
+    tidySearch();
     hideSections();
   }
 
   apply();
   setInterval(apply, 400);
-  // Fold the highlights box as soon as it's ready (it stays hidden until then)
-  if (FOLD_HIGHLIGHTS) {
+  // As the page builds: fold the highlights box as soon as it's ready (it
+  // stays hidden until then) and tidy the search box, before they're drawn
+  {
     let queued = false;
     new MutationObserver(() => {
-      if (queued || !document.querySelector('community-highlight-carousel:not([data-rnf-folded])')) return;
+      tidySearch(); // right away, before anything new is drawn
+      if (queued) return;
       queued = true;
-      requestAnimationFrame(() => { queued = false; foldCarousels(); });
-    }).observe(document.documentElement, { childList: true, subtree: true });
+      requestAnimationFrame(() => {
+        queued = false;
+        if (FOLD_HIGHLIGHTS && document.querySelector('community-highlight-carousel:not([data-rnf-folded])')) foldCarousels();
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ASK_SETTINGS });
   }
   window.addEventListener('popstate', apply);
 })();
