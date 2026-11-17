@@ -82,6 +82,11 @@ function drawBackground(ctx, W, H) {
 async function getWeather() {
   Location.setAccuracyToThreeKilometers();
   const loc = await Location.current();
+  let city = "";
+  try {
+    const place = (await Location.reverseGeocode(loc.latitude, loc.longitude))[0] || {};
+    city = place.locality || place.subAdministrativeArea || place.administrativeArea || "";
+  } catch (e) { /* no city name, the rest still works */ }
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}` +
     `&current=temperature_2m,weather_code,is_day` +
     `&hourly=temperature_2m,weather_code,is_day,precipitation_probability` +
@@ -104,6 +109,7 @@ async function getWeather() {
     });
   }
   return {
+    city,
     temp: Math.round(d.current.temperature_2m),
     code: d.current.weather_code,
     day: d.current.is_day === 1,
@@ -176,13 +182,23 @@ async function render() {
   // weather
   if (weather) {
     const w = describe(weather.code, weather.day);
+    // city name with a location arrow, "Updated" time on the same line at the right
+    if (weather.city) {
+      const pin = SFSymbol.named("location.fill");
+      pin.applyFont(Font.semiboldSystemFont(30 * s));
+      ctx.drawImageInRect(pin.image, new Rect(left + 4 * s, y + 8 * s, 34 * s, 34 * s));
+      ctx.setTextColor(white);
+      ctx.setFont(Font.semiboldSystemFont(40 * s));
+      ctx.drawTextInRect(weather.city, new Rect(left + 50 * s, y, width * 0.6, 54 * s));
+    }
+    drawUpdated(y + 4 * s);
+    y += 70 * s;
     const icon = SFSymbol.named(w.sym);
     icon.applyFont(Font.systemFont(90 * s));
     ctx.drawImageInRect(icon.image, new Rect(left, y, 110 * s, 110 * s));
     ctx.setTextColor(white);
     ctx.setFont(Font.boldSystemFont(96 * s));
     ctx.drawText(`${weather.temp}°`, new Point(left + 140 * s, y - 6 * s));
-    drawUpdated(y + 40 * s);
     ctx.setFont(Font.mediumSystemFont(40 * s));
     ctx.setTextColor(dim);
     ctx.drawText(`${w.label} · H ${weather.hi}° L ${weather.lo}° · ${weather.rain}% rain`,
