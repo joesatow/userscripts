@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Reddit No Feed
 // @namespace    reddit-no-feed
-// @version      1.10
-// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) and folds up Community highlights.
+// @version      1.11
+// @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) folds up Community highlights, and removes Suggested communities.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
 // @match        https://old.reddit.com/*
@@ -24,6 +24,7 @@
   const ANYWHERE_SECTIONS = ['recent posts'];
 
   const FOLD_HIGHLIGHTS = true; // "Community highlights" starts folded up (tap to open)
+  const HIDE_SUGGESTED = true; // "Suggested communities" boxes in feeds (kept on the Explore page)
   const HIDE_ADS = true; // promoted posts in feeds, ads in comments and the sidebar
 
   // Home page and its sort tabs
@@ -54,6 +55,9 @@
     /* Keep Community highlights out of sight until it's been folded up */
     community-highlight-carousel:not([data-rnf-folded]),
     details:not([data-rnf-folded]) community-highlight-carousel { display: none !important; }
+  ` : '') + (HIDE_SUGGESTED ? `
+    shreddit-app:not([pagetype="explore"]) in-feed-community-recommendations,
+    shreddit-app:not([pagetype="explore"]) in-feed-community-recommendations + hr { display: none !important; }
   ` : '') + (HIDE_ADS ? `
     /* Ads: hidden before they're drawn. The line after an ad goes too, so
        there's no doubled divider where it was. */
