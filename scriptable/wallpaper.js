@@ -292,7 +292,7 @@ async function render() {
   if (tasks && tasks.length === 0) {
     ctx.setTextColor(dim);
     ctx.setFont(Font.mediumSystemFont(42 * s));
-    ctx.drawText("All clear ✨", new Point(left, y));
+    ctx.drawText("All clear", new Point(left, y));
   }
   for (const t of (tasks || []).slice(0, MAX_TASKS)) {
     const c = new Color(prioColor[t.priority] || "#ffffff", t.priority === 1 ? 0.5 : 1);
