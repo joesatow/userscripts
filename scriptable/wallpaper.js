@@ -122,11 +122,15 @@ async function getWeather() {
 
 const TASKS_CACHE = fm.joinPath(fm.documentsDirectory(), "wallpaper-tasks-cache.json");
 
-// Fetch today's tasks, retrying once. Throws an Error whose message says what went wrong.
+const sleep = (sec) => new Promise(res => { try { Timer.schedule(sec * 1000, false, res); } catch (e) { res(); } });
+
+// Fetch today's tasks, trying up to 3 times (Todoist sometimes answers 502/503 for a moment).
+// Throws an Error whose message says what went wrong.
 async function fetchTasks() {
   if (!TODOIST_TOKEN || TODOIST_TOKEN.includes("PASTE")) throw new Error("No Todoist token in the loader");
   let lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await sleep(attempt * 2); // wait 2 s, then 4 s
     try {
       const req = new Request("https://api.todoist.com/api/v1/tasks/filter?query=" +
         encodeURIComponent(TASK_FILTER) + "&limit=50");
@@ -216,8 +220,10 @@ async function render() {
     ctx.setTextColor(new Color("#ffffff", 0.55));
     ctx.setFont(Font.mediumSystemFont(32 * s));
     ctx.drawTextInRect(`Updated ${df.string(new Date())}`, new Rect(left, yy, width, 46 * s));
-    if (err) { // problems go on a second line, in red, so the time is always visible
-      ctx.setTextColor(new Color("#ff8a80"));
+    if (err) { // problems go on a second line, so the time is always visible
+      // Same quiet white as the time: bright red text here made iOS treat it as the photo's
+      // subject and zoom the whole wallpaper in on it.
+      ctx.setTextColor(new Color("#ffffff", 0.45));
       ctx.setFont(Font.mediumSystemFont(27 * s));
       ctx.drawTextInRect(err.trim(), new Rect(left, yy + 44 * s, width, 40 * s));
     }
