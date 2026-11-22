@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         X No Feed
-// @namespace    x-no-feed
-// @version      1.0
+// @name         X
+// @namespace    joesatow-x
+// @version      2.0
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -10,8 +10,8 @@
 // @run-at       document-start
 // @inject-into  auto
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-feed.user.js
-// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-feed.user.js
+// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/x.user.js
+// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/x.user.js
 // ==/UserScript==
 
 // Works from the browser extension's own space (X's security settings block

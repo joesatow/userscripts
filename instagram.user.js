@@ -1,14 +1,14 @@
 // ==UserScript==
-// @name         Instagram Cleanup
-// @namespace    instagram-scrubber
-// @version      1.9
-// @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, no "Use the app" bar, and no Home or Reels buttons in the tab bar, and no unread-message count.
+// @name         Instagram
+// @namespace    joesatow-instagram
+// @version      2.0
+// @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, no Home or Reels buttons in the tab bar, and no unread-message count.
 // @match        https://www.instagram.com/*
 // @run-at       document-start
 // @grant        none
 // @inject-into  auto
-// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/instagram-cleanup.user.js
-// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/instagram-cleanup.user.js
+// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/instagram.user.js
+// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/instagram.user.js
 // ==/UserScript==
 
 // What it does:
@@ -19,7 +19,7 @@
 //   (browsers don't allow sound before that). Until then videos wait paused
 //   (with Instagram's play icon), so that one tap starts the video with sound.
 //   Set SOUND_ON / START_PAUSED to false to stop either.
-// - Hides the "Use the app" bar, and the Home and Reels buttons in the
+// - Hides the Home and Reels buttons in the
 //   bottom tab bar (change HIDE_TABS to pick which), and the unread count
 //   on the Messages button.
 //
@@ -395,14 +395,6 @@
   let lastUserTap = 0;
   window.addEventListener('pointerdown', (e) => { if (e.isTrusted) lastUserTap = Date.now(); }, true);
 
-  // ---- Hide "Use the app" bars ----
-  // Find the wording, then hide the smallest box around it that holds only
-  // that bar (its text plus a close X), never the bottom tab bar it sits on.
-  const NAG_TEXT = ['use the app', 'get the app', 'open app', 'open in app', 'use app', 'open instagram'];
-  const NAG_XPATH = '//*[not(self::script or self::style)][' +
-    NAG_TEXT.map((t) => `translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='${t}'`).join(' or ') + ']';
-  const nagWords = (s) => NAG_TEXT.includes(s.replace(/\s+/g, ' ').trim().toLowerCase());
-
   // ---- Bottom tab bar: remove chosen buttons ----
   const TAB_LINKS = {
     home: 'a[href="/"]',
@@ -466,29 +458,13 @@
   }
   const TAB_HINT = 'a[href="/"], a[href^="/reels/"], a[href^="/direct/"], a[href="/explore/"], svg[aria-label="Home"], svg[aria-label="Reels"]';
 
-  function hideAppNags() {
-    const hits = document.evaluate(NAG_XPATH, document.body, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-    for (let i = 0; i < hits.snapshotLength; i++) {
-      let box = hits.snapshotItem(i);
-      if (box.closest('[data-igs-hidden], #igs-bar')) continue;
-      for (let p = box.parentElement; p && p !== document.body; p = p.parentElement) {
-        if (!nagWords(p.textContent || '')) break;              // holds other words: that's the page/tab bar
-        if (p.querySelectorAll('a[href]').length > 1) break;   // holds other links (tab bar icons)
-        if (p.getBoundingClientRect().height > 160) break;     // bigger than a bar
-        box = p;
-      }
-      box.setAttribute('data-igs-hidden', '');
-    }
-  }
   style.textContent += '[data-igs-hidden] { display: none !important; }';
 
-  // Check before each redraw when the page changes, so the bar never shows
+  // Check before each redraw when the page changes, so nothing flashes
   let nagQueued = false;
   new MutationObserver((records) => {
-    // Anything new mentioning "app": check right now, before it's drawn
     for (const rec of records) {
       for (const n of rec.addedNodes) {
-        if (/\bapp\b|instagram/i.test(n.textContent || '')) { try { hideAppNags(); } catch (e) {} }
         // Tab bar redrawn, or a new message count: tidy it before it's drawn
         if ((n.nodeType === 1 && (n.matches(TAB_HINT) || n.querySelector(TAB_HINT) || (n.closest && n.closest('a[href^="/direct/"]')))) ||
             COUNT.test((n.textContent || '').trim())) {
@@ -499,9 +475,8 @@
     }
     if (nagQueued) return;
     nagQueued = true;
-    requestAnimationFrame(() => { nagQueued = false; try { hideAppNags(); } catch (e) {} try { hideNavTabs(); } catch (e) {} });
+    requestAnimationFrame(() => { nagQueued = false; try { hideNavTabs(); } catch (e) {} });
   }).observe(document.body, { childList: true, subtree: true, characterData: true });
-  hideAppNags();
   hideNavTabs();
 
   // ---- Tap / drag to jump ----

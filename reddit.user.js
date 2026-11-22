@@ -1,15 +1,15 @@
 // ==UserScript==
-// @name         Reddit No Feed
-// @namespace    reddit-no-feed
-// @version      1.14
+// @name         Reddit
+// @namespace    joesatow-reddit
+// @version      2.0
 // @description  Hides the Reddit home feed (and Popular / All), plus the Recent Posts card and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, in-comment and sidebar ads) folds up Community highlights, removes Suggested communities, and takes Trending, Trending communities and the AI Ask button out of search.
 // @match        https://www.reddit.com/*
 // @match        https://reddit.com/*
 // @match        https://old.reddit.com/*
 // @run-at       document-start
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js
-// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js
+// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/reddit.user.js
+// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/reddit.user.js
 // ==/UserScript==
 
 (function () {
@@ -61,13 +61,6 @@
     [data-rnf-hidden]::before { content: 'hidden: ' attr(data-rnf-hidden); position: absolute; z-index: 9999; top: 0; left: 0;
       background: red; color: #fff; font: 600 11px/1.3 system-ui; padding: 1px 4px; pointer-events: none; }
   ` : '') + `
-
-    /* Phone: "Open in app" / "Use the app" prompts */
-    [bundlename*="xpromo" i],
-    [id*="xpromo" i],
-    xpromo-app-selector,
-    xpromo-untagged-content-blocking-modal,
-    shreddit-async-loader[bundlename*="app_selector" i] { display: none !important; }
   ` + (FOLD_HIGHLIGHTS ? `
     /* Search lists, when they aren't inside the search box's own section */
     #reddit-trending-searches-partial-container [id$="trending_query"],

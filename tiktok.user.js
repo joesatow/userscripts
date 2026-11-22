@@ -1,14 +1,14 @@
 // ==UserScript==
-// @name         TikTok No Login Popup
-// @namespace    tiktok-no-login
-// @version      1.3
+// @name         TikTok
+// @namespace    joesatow-tiktok
+// @version      2.0
 // @description  Removes TikTok's "Log in" pop-ups when you're not logged in, without a flash, and keeps the page clickable and scrollable.
 // @match        https://www.tiktok.com/*
 // @match        https://m.tiktok.com/*
 // @run-at       document-start
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js
-// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js
+// @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok.user.js
+// @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok.user.js
 // ==/UserScript==
 
 (function () {

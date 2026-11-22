@@ -1,37 +1,42 @@
 # userscripts
 
-Tampermonkey scripts that strip feeds and clutter from sites, plus a dark mode for Microsoft Fabric.
+Userscripts that strip feeds and clutter from sites, one script per site, plus a dark mode for Microsoft Fabric at work.
 
-Click an **Install** link with Tampermonkey turned on (or paste the link into Tampermonkey → Utilities → Import from URL). Each script updates itself from this repo.
+Click an **Install** link with Tampermonkey turned on (or paste the link into Tampermonkey → Utilities → Import from URL). On iPhone, open the link in Safari with the Userscripts app turned on. Each script updates itself from this repo.
 
-## Computer
+## Desktop
+
+Tampermonkey in Chrome or Edge. Ads are left to uBlock Origin.
 
 | Script | What it does | Install |
 | --- | --- | --- |
-| FB No Feeds | Hides the Facebook home feed, Marketplace browse feed, Reels/Video and Gaming tabs, Sponsored and Birthdays. Left sidebar trimmed to Saved, Groups, Marketplace and Events. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fb-no-feeds.user.js) |
-| Reddit No Feed | Hides the Reddit home feed, Popular and All, Recent Posts, and the Games, Custom Feeds and Recent sidebar sections. Also removes ads (promoted posts, ads in comments and the sidebar) starts Community highlights folded up (tap to open), removes Suggested communities, and takes Trending, Trending communities and the AI "Ask" button out of search (Recent searches stay). Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js) |
-| YouTube Cleanup | Removes Ask YouTube, the Shorts and Create buttons, the topic chips and the Subscriptions sidebar list. Home feed hidden behind a "Show home feed" button. Videos open in theater mode, with related videos hidden behind a "Show related videos" button (no Shorts or filter chips when shown). Sponsor segments, self-promotion and "like and subscribe" reminders are skipped automatically using SponsorBlock's viewer-marked times (Undo to watch). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-cleanup.user.js) |
-| Fabric Dark | Dark mode for Microsoft Fabric / Power BI (Dark Reader's engine), including notebooks, with a sun/moon toggle in the top bar. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fabric-dark.user.js) |
-| TikTok No Login Popup | Removes TikTok's "Log in" pop-ups when you're not logged in and turns scrolling back on. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
-| X No App Nag | Logged-out X/Twitter in the browser: stops jumps to the App Store or X app, opens quote tweets and posts as normal pages, and hides "Open app" and login prompts. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
-| X No Feed | Logged-in X/Twitter for opening links people send you: hides the Home timeline, Explore's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts, search, notifications and messages work as normal. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-feed.user.js) |
-| Ad Sweeper | Catch-all ad cleanup on every site: ad slots, sticky ad bars and "ad-free" upsells, labelled mid-article ads, and pop-ups that open on their own. Add `#adsweep-off` to a page address to turn it off for that site (`#adsweep-on` to undo, `#adsweep-debug` to see what it removed). Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
-| Cookie Banner Begone | Answers cookie banners on every site: clicks "Reject all" / "Necessary only" when offered, otherwise hides the banner and unfreezes the page. Never clicks Accept unless you change `ANSWER` at the top. Add `#cookies-off` to a page address to turn it off for that site (`#cookies-on` to undo). Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js) |
-| Instagram Cleanup | Instagram on the website, more like the app: a progress bar on every video (posts, Reels, stories) that you can tap or drag to jump, sound on by default: videos open paused, and your first tap starts them with sound, no "Use the app" bar, no Home or Reels buttons in the bottom tab bar, and no unread-message count on the Messages button. Also works on phones. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/instagram-cleanup.user.js) |
+| YouTube | Removes Ask YouTube, the Shorts and Create buttons, the topic chips and the Subscriptions sidebar list. Home feed hidden behind a "Show home feed" button. Videos open in theater mode, with related videos hidden behind a "Show related videos" button (no Shorts or filter chips when shown). Sponsor segments, self-promotion and "like and subscribe" reminders are skipped automatically using SponsorBlock's viewer-marked times (Undo to watch). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube.user.js) |
+| Facebook | Hides the home feed, Marketplace browse feed, Reels/Video and Gaming tabs, Sponsored and Birthdays. Left sidebar trimmed to Saved, Groups, Marketplace and Events. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/facebook.user.js) |
+| Reddit | Hides the home feed, Popular and All, Recent Posts, and the Games, Custom Feeds and Recent sidebar sections. Removes ads (promoted posts, ads in comments and the sidebar), starts Community highlights folded up (tap to open), removes Suggested communities, and takes Trending, Trending communities and the AI "Ask" button out of search (Recent searches stay). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit.user.js) |
+| X | Hides the Home timeline, Explore's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts, search, notifications and messages work as normal. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x.user.js) |
+| Instagram | Instagram on the website, more like the app: a progress bar on every video (posts, Reels, stories) that you can tap or drag to jump, sound on by default (videos open paused, and your first tap starts them with sound), no Home or Reels buttons in the bottom tab bar, and no unread-message count on the Messages button. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/instagram.user.js) |
+| Cookie Banner Begone | Answers cookie banners on every site: clicks "Reject all" / "Necessary only" when offered, otherwise hides the banner and unfreezes the page. Never clicks Accept unless you change `ANSWER` at the top. Add `#cookies-off` to a page address to turn it off for that site (`#cookies-on` to undo). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js) |
 
 ## Phone
 
+The Userscripts app in Safari on iPhone (Brave on iPhone can't run scripts). The YouTube, Facebook, Reddit, X, Instagram and Cookie Banner Begone scripts are the same files as on the desktop; each one has a phone part where the mobile site needs it.
+
+| Script | What it does on the phone | Install |
+| --- | --- | --- |
+| YouTube | Mobile YouTube without Ask YouTube, the Shorts, Create and Subscriptions tabs or the topic chips. Home feed behind a toggle. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube.user.js) |
+| Facebook | Replaces mobile Facebook's home feed, Marketplace browse feed, Reels and Video with a simple page: Marketplace search plus shortcuts. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/facebook.user.js) |
+| Reddit | Same as on the desktop. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit.user.js) |
+| X | Same as on the desktop. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x.user.js) |
+| Instagram | Same as on the desktop. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/instagram.user.js) |
+| TikTok | Removes TikTok's "Log in" pop-ups and turns scrolling and tapping back on if a pop-up froze the page. Phone only. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok.user.js) |
+| Ad Sweeper | Catch-all ad cleanup on every site: ad slots, sticky ad bars and "ad-free" upsells, labelled mid-article ads, and pop-ups that open on their own. Add `#adsweep-off` to a page address to turn it off for that site (`#adsweep-on` to undo, `#adsweep-debug` to see what it removed). Phone only. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
+| Cookie Banner Begone | Same as on the desktop. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js) |
+
+## Work
+
 | Script | What it does | Install |
 | --- | --- | --- |
-| FB Mobile Cleanup | Replaces mobile Facebook's home feed, Marketplace browse feed, Reels and Video with a simple page: Marketplace search plus shortcuts. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fb-mobile-cleanup.user.js) |
-| YouTube Mobile Cleanup | Mobile YouTube without Ask YouTube, the Shorts, Create and Subscriptions tabs or the topic chips. Home feed behind a toggle. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/youtube-mobile-cleanup.user.js) |
-| Reddit No Feed | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/reddit-no-feed.user.js) |
-| TikTok No Login Popup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok-no-login.user.js) |
-| X No App Nag | Same script as on the computer (use Safari; Brave on iPhone can't run scripts). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-app-nag.user.js) |
-| X No Feed | Same script as on the computer (use Safari). | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/x-no-feed.user.js) |
-| Ad Sweeper | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
-| Cookie Banner Begone | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js) |
-| Instagram Cleanup | Same script as on the computer. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/instagram-cleanup.user.js) |
+| Fabric Dark | Dark mode for Microsoft Fabric / Power BI (Dark Reader's engine), including notebooks, with a sun/moon toggle in the top bar. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/fabric-dark.user.js) |
 
 ## Scriptable (iPhone)
 
