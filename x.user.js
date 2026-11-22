@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.0
+// @version      2.1
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -52,23 +52,30 @@
 
   // ---- Style rules (in place before X draws anything, so nothing flashes) ----
   const css = [];
+  // The home timeline is labelled the same on every page it appears, so this
+  // rule is always on
   if (HIDE_HOME) {
     css.push(
-      `html.xnf-home ${PRIMARY} section,`,
-      `html.xnf-home ${PRIMARY} [role="tablist"],`,
-      `html.xnf-home [aria-label^="Timeline: Your Home Timeline"] { display: none !important; }`,
-      `html.xnf-home ${PRIMARY}::after {`,
+      `div[aria-label^="Timeline: Your Home Timeline" i],`,
+      `div[aria-label*="Home Timeline" i] { display: none !important; }`
+    );
+  }
+  // Rules for the page you're on; swapped in as you move around X
+  const PAGE_CSS = {
+    home: [
+      `${PRIMARY} section,`,
+      `${PRIMARY} [role="tablist"],`,
+      `${PRIMARY} [data-testid="cellInnerDiv"] { display: none !important; }`,
+      `${PRIMARY}::after {`,
       `  content: "Home feed hidden. Search, Notifications, Messages and links people send you still work.";`,
       `  display: block; padding: 48px 24px; text-align: center; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;`,
-      `  color: rgb(113, 118, 123); }`
-    );
-  }
-  if (HIDE_EXPLORE) {
-    css.push(
-      `html.xnf-explore ${PRIMARY} section,`,
-      `html.xnf-explore ${PRIMARY} [role="tablist"] { display: none !important; }`
-    );
-  }
+      `  color: rgb(113, 118, 123); }`,
+    ].join('\n'),
+    explore: [
+      `${PRIMARY} section,`,
+      `${PRIMARY} [role="tablist"] { display: none !important; }`,
+    ].join('\n'),
+  };
   if (HIDE_SIDEBAR) {
     css.push(
       `html:not(.xnf-search) ${SIDEBAR} section,`,
@@ -79,36 +86,63 @@
   if (DEBUG) {
     css.push(
       `[${HIDE_ATTR}] { display: block !important; outline: 2px solid red !important; outline-offset: -2px; position: relative; opacity: .6; }`,
-      `[${HIDE_ATTR}]::before { content: "X No Feed: " attr(${HIDE_ATTR}); position: absolute; z-index: 9; top: 0; left: 0;`,
+      `[${HIDE_ATTR}]::before { content: "X: " attr(${HIDE_ATTR}); position: absolute; z-index: 9; top: 0; left: 0;`,
       `  background: red; color: #fff; font: 11px monospace; padding: 1px 4px; }`
     );
   } else {
     css.push(`[${HIDE_ATTR}] { display: none !important; }`);
   }
 
+  const baseStyle = document.createElement('style');
+  baseStyle.id = 'xnf-style';
+  baseStyle.textContent = css.join('\n');
+  const pageStyle = document.createElement('style');
+  pageStyle.id = 'xnf-page-style';
+
+  // Put the style elements in (again, if X's page rebuild took them out)
   function addStyle() {
     const root = document.head || document.documentElement;
     if (!root) return false;
-    const s = document.createElement('style');
-    s.id = 'xnf-style';
-    s.textContent = css.join('\n');
-    root.appendChild(s);
+    if (!baseStyle.isConnected) root.appendChild(baseStyle);
+    if (!pageStyle.isConnected) root.appendChild(pageStyle);
     return true;
   }
 
   // ---- Which page we're on (X changes pages without reloading) ----
   let lastPath = null;
+  let page = '';
   function updatePage() {
     const html = document.documentElement;
     if (!html) return;
+    addStyle();
     const p = location.pathname.replace(/\/+$/, '') || '/';
     if (p === lastPath && html.classList.contains('xnf-ready')) return;
     lastPath = p;
+    page = (p === '/home' || p === '/') ? 'home' : /^\/explore(\/|$)/.test(p) ? 'explore' : '';
+    const want = (page === 'home' && HIDE_HOME) || (page === 'explore' && HIDE_EXPLORE) ? PAGE_CSS[page] : '';
+    if (pageStyle.textContent !== want) pageStyle.textContent = want;
     html.classList.add('xnf-ready');
-    html.classList.toggle('xnf-home', p === '/home' || p === '/');
-    html.classList.toggle('xnf-explore', /^\/explore(\/|$)/.test(p));
     html.classList.toggle('xnf-search', p === '/search');
   }
+
+  // ---- #xnf-debug: a small box saying the script is running and what it sees ----
+  let debugBox = null;
+  function showDebug() {
+    if (!DEBUG || !document.body) return;
+    if (!debugBox || !debugBox.isConnected) {
+      debugBox = document.createElement('div');
+      debugBox.style.cssText = 'position:fixed;z-index:2147483647;left:8px;bottom:80px;background:#c00;color:#fff;' +
+        'font:12px/1.35 monospace;padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre';
+      document.body.appendChild(debugBox);
+    }
+    const tl = document.querySelector('div[aria-label*="Home Timeline" i]');
+    const labels = [...document.querySelectorAll(`${PRIMARY} [aria-label^="Timeline" i]`)].map(e => e.getAttribute('aria-label')).slice(0, 3);
+    const msg = `X script ${GM_VERSION} running\npage: ${location.pathname} (${page || 'other'})\n` +
+      `primaryColumn: ${!!document.querySelector(PRIMARY)}  home timeline: ${!!tl}\n` +
+      `timelines: ${labels.join(' | ') || 'none'}\ncells: ${document.querySelectorAll('[data-testid="cellInnerDiv"]').length}`;
+    if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
+  }
+  const GM_VERSION = '2.1';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -170,14 +204,14 @@
     if (document.body) {
       sweepSidebar(document.body);
       sweepDiscover();
+      showDebug();
     }
   }
 
   // ---- Start ----
   function start() {
-    if (!document.documentElement) { requestAnimationFrame(start); return; }
+    if (!document.documentElement) { setTimeout(start, 0); return; }
     updatePage();
-    if (!addStyle()) { requestAnimationFrame(start); return; }
 
     // Handle changes as they happen (before the screen is drawn)
     let queued = false;
@@ -189,7 +223,7 @@
     });
     mo.observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener('popstate', sweep);
-    setInterval(updatePage, 250); // safety net for page changes that touch no markup
+    setInterval(() => { updatePage(); showDebug(); }, 250); // safety net for page changes that touch no markup
     if (document.readyState !== 'loading') sweep();
     else document.addEventListener('DOMContentLoaded', sweep);
   }
