@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.1
+// @version      2.2
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
 // @match        https://twitter.com/*
 // @match        https://mobile.twitter.com/*
 // @run-at       document-start
-// @inject-into  auto
+// @inject-into  content
 // @grant        none
 // @updateURL    https://raw.githubusercontent.com/joesatow/userscripts/main/x.user.js
 // @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/x.user.js
@@ -142,7 +142,7 @@
       `timelines: ${labels.join(' | ') || 'none'}\ncells: ${document.querySelectorAll('[data-testid="cellInnerDiv"]').length}`;
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.1';
+  const GM_VERSION = '2.2';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
