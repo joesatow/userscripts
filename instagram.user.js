@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Instagram
 // @namespace    joesatow-instagram
-// @version      2.1
+// @version      2.2
 // @description  Instagram on the website, more like the app: a progress bar you can drag on every video, sound on by default, no "Use the app" bar, no Home or Reels buttons in the tab bar, and no unread-message count.
 // @match        https://www.instagram.com/*
 // @run-at       document-start
@@ -402,6 +402,18 @@
   const NAG_XPATH = '//*[not(self::script or self::style)][' +
     NAG_TEXT.map((t) => `translate(normalize-space(text()), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')='${t}'`).join(' or ') + ']';
   const nagWords = (s) => NAG_TEXT.includes(s.replace(/\s+/g, ' ').trim().toLowerCase());
+  // A box's words, leaving out icon labels (the close X's svg has a hidden
+  // "Close" title) and the close/dismiss button's own text
+  const CLOSE_WORDS = /\b(close|dismiss|not now)\b/gi;
+  const boxWords = (el) => {
+    let t = '';
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.parentElement && n.parentElement.closest('svg, script, style')) continue;
+      t += ' ' + n.nodeValue;
+    }
+    return t.replace(CLOSE_WORDS, ' ');
+  };
 
   // ---- Bottom tab bar: remove chosen buttons ----
   const TAB_LINKS = {
@@ -472,7 +484,7 @@
       let box = hits.snapshotItem(i);
       if (box.closest('[data-igs-hidden], #igs-bar')) continue;
       for (let p = box.parentElement; p && p !== document.body; p = p.parentElement) {
-        if (!nagWords(p.textContent || '')) break;              // holds other words: that's the page/tab bar
+        if (!nagWords(boxWords(p))) break;              // holds other words: that's the page/tab bar
         if (p.querySelectorAll('a[href]').length > 1) break;   // holds other links (tab bar icons)
         if (p.getBoundingClientRect().height > 160) break;     // bigger than a bar
         box = p;
