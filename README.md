@@ -31,6 +31,7 @@ The Userscripts app in Safari on iPhone (Brave on iPhone can't run scripts). The
 | TikTok | Removes TikTok's "Log in" pop-ups and turns scrolling and tapping back on if a pop-up froze the page. Phone only. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok.user.js) |
 | Ad Sweeper | Catch-all ad cleanup on every site: ad slots, sticky ad bars and "ad-free" upsells, labelled mid-article ads, and pop-ups that open on their own. Add `#adsweep-off` to a page address to turn it off for that site (`#adsweep-on` to undo, `#adsweep-debug` to see what it removed). Phone only. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/ad-sweeper.user.js) |
 | Cookie Banner Begone | Same as on the desktop. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/begone.user.js) |
+| No App Banner | Tries to stop Safari's "Open in the app" bar at the top of sites like GitHub, X and YouTube by removing the tag that asks for it. Safari sometimes reads the tag before the script runs, so the bar can still show now and then. Sites that draw their own "open in app" pop-up aren't covered. Phone only. | [Install](https://raw.githubusercontent.com/joesatow/userscripts/main/no-app-banner.user.js) |
 
 ## Work
 
