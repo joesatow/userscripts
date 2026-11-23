@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.2
+// @version      2.3
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -37,7 +37,7 @@
     'live on x', 'trends for you', 'explore',
   ];
   // Headings that start the recommended posts under a thread
-  const DISCOVER_HEADINGS = ['discover more', 'more posts', 'more tweets'];
+  const DISCOVER_HEADINGS = ['discover more'];
 
   let DEBUG = false;
   try {
@@ -52,14 +52,12 @@
 
   // ---- Style rules (in place before X draws anything, so nothing flashes) ----
   const css = [];
-  // The home timeline is labelled the same on every page it appears, so this
-  // rule is always on
-  if (HIDE_HOME) {
-    css.push(
-      `div[aria-label^="Timeline: Your Home Timeline" i],`,
-      `div[aria-label*="Home Timeline" i] { display: none !important; }`
-    );
-  }
+  // The home timeline is labelled the same wherever it appears. This rule is
+  // on for every page except a single post, so a post someone sends you can
+  // never be caught by it.
+  const HOME_TIMELINE_CSS = HIDE_HOME
+    ? `div[aria-label^="Timeline: Your Home Timeline" i], div[aria-label*="Home Timeline" i] { display: none !important; }`
+    : '';
   // Rules for the page you're on; swapped in as you move around X
   const PAGE_CSS = {
     home: [
@@ -108,6 +106,12 @@
     return true;
   }
 
+  // A single post (what a shared link opens): nothing on these pages is hidden
+  // except the "Discover more" posts after the thread
+  function isPostPath(p) {
+    return /\/status(es)?\/\d+/.test(p);
+  }
+
   // ---- Which page we're on (X changes pages without reloading) ----
   let lastPath = null;
   let page = '';
@@ -118,8 +122,14 @@
     const p = location.pathname.replace(/\/+$/, '') || '/';
     if (p === lastPath && html.classList.contains('xnf-ready')) return;
     lastPath = p;
-    page = (p === '/home' || p === '/') ? 'home' : /^\/explore(\/|$)/.test(p) ? 'explore' : '';
-    const want = (page === 'home' && HIDE_HOME) || (page === 'explore' && HIDE_EXPLORE) ? PAGE_CSS[page] : '';
+    page = isPostPath(p) ? 'post'
+      : (p === '/home' || p === '/') ? 'home'
+      : /^\/explore(\/|$)/.test(p) ? 'explore' : '';
+    let want = '';
+    if (page !== 'post') {
+      want = HOME_TIMELINE_CSS;
+      if ((page === 'home' && HIDE_HOME) || (page === 'explore' && HIDE_EXPLORE)) want += '\n' + PAGE_CSS[page];
+    }
     if (pageStyle.textContent !== want) pageStyle.textContent = want;
     html.classList.add('xnf-ready');
     html.classList.toggle('xnf-search', p === '/search');
@@ -142,7 +152,7 @@
       `timelines: ${labels.join(' | ') || 'none'}\ncells: ${document.querySelectorAll('[data-testid="cellInnerDiv"]').length}`;
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.2';
+  const GM_VERSION = '2.3';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -184,19 +194,38 @@
     return false;
   }
 
+  // The post the address points to (never hidden)
+  function isFocalCell(cell) {
+    const m = location.pathname.match(/\/status(?:es)?\/(\d+)/);
+    if (!m) return false;
+    if (cell.querySelector('article[tabindex="-1"]')) return true;
+    for (const a of cell.querySelectorAll('a[href*="/status/"]')) {
+      if (new RegExp('/status/' + m[1] + '(?:$|[/?#])').test(a.getAttribute('href') || '') && a.querySelector('time')) return true;
+    }
+    return false;
+  }
+
   function sweepDiscover() {
     if (!HIDE_DISCOVER_MORE) return;
-    if (!/\/status\/\d+/.test(location.pathname)) return;
-    const cells = document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`);
+    if (!isPostPath(location.pathname)) return;
+    const cells = [...document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`)];
+    // Only cells after the post itself (and after a real post) can be "Discover more"
+    let seenPost = false;
+    let inDiscover = false;
     for (const cell of cells) {
-      if (cell.hasAttribute(HIDE_ATTR)) continue;
-      if (isDiscoverCell(cell)) { hide(cell, 'discover more'); continue; }
-      // Anything after a hidden Discover cell is a recommended post
-      const prev = cell.previousElementSibling;
-      if (prev && prev.getAttribute(HIDE_ATTR) && prev.getAttribute(HIDE_ATTR).startsWith('discover')) {
-        hide(cell, 'discover more (post)');
-      }
+      const focal = isFocalCell(cell);
+      if (focal) { seenPost = true; inDiscover = false; unhide(cell); continue; }
+      if (cell.querySelector('article')) seenPost = true;
+      if (seenPost && !cell.querySelector('article') && isDiscoverCell(cell)) { inDiscover = true; hide(cell, 'discover more'); continue; }
+      if (inDiscover) hide(cell, 'discover more (post)');
+      else unhide(cell);
     }
+    // Safety net: if every cell ended up hidden, show them all again
+    if (cells.length && cells.every(c => c.hasAttribute(HIDE_ATTR))) cells.forEach(unhide);
+  }
+
+  function unhide(el) {
+    if (el.hasAttribute(HIDE_ATTR)) el.removeAttribute(HIDE_ATTR);
   }
 
   function sweep() {
