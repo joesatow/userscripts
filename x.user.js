@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.3
+// @version      2.4
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -29,6 +29,27 @@
   const HIDE_EXPLORE = true;       // Explore's trends and tabs (the search box stays)
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
+  const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
+  const KEEP_TABS = ['for you', 'following']; // Home's top tabs to keep (the rest go)
+
+  // Clickbait checks (a post's text, any capitalization). A post is folded
+  // into a "Hidden: looks like clickbait" bar you can tap to open.
+  // 1. Ends on a cliffhanger: "...", "…", or pointing down at a thread
+  const BAIT_ENDINGS = /(\.\.\.|…|👇+|⬇️+|🧵+|\(thread\)|a thread:?|thread:|read more:?|here'?s (what|why|how)( happened)?:?|the answer:?|story time:?)\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/iu;
+  // 2. Bait phrases anywhere in the text
+  const BAIT_PHRASES = [
+    "you won't believe", 'you won’t believe', 'what happened next', 'what he said next', 'what she said next',
+    'then i asked', 'then he said', 'then she said', 'then they said', 'wait for it', 'wait till the end',
+    'watch till the end', 'watch until the end', 'nobody is talking about', 'no one is talking about',
+    'will shock you', 'blew my mind', 'i was today years old', 'read that again', 'let that sink in',
+    "most people don't know", 'most people don’t know', 'most people have no idea', 'bookmark this',
+    'save this for later', 'like and repost', 'like & repost', 'rt if you', 'repost if you', 'like if you',
+    'comment below', 'drop a ', 'reply with', "here's the crazy part", 'here’s the crazy part',
+    'the ending is', 'turned out to be', 'this changes everything', 'is going viral', 'went viral',
+    "i'll wait", 'i’ll wait', 'thread below', 'a short thread', 'long thread',
+  ];
+  // 3. List-style teasers: "7 ways to…", "12 things I learned…"
+  const BAIT_LISTICLE = /^\s*\d{1,2}\s+(ways|things|tips|reasons|lessons|habits|signs|secrets|mistakes|rules|books|tools|questions)\b/i;
 
   // Sidebar boxes to remove, matched by their heading (any capitalization)
   const SIDEBAR_HEADINGS = [
@@ -63,17 +84,29 @@
     home: [
       `${PRIMARY} section,`,
       `${PRIMARY} [role="tablist"],`,
+      `[data-xnf-tab], [data-xnf-pill],`,
       `${PRIMARY} [data-testid="cellInnerDiv"] { display: none !important; }`,
-      `${PRIMARY}::after {`,
-      `  content: "Home feed hidden. Search, Notifications, Messages and links people send you still work.";`,
-      `  display: block; padding: 48px 24px; text-align: center; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;`,
-      `  color: rgb(113, 118, 123); }`,
     ].join('\n'),
+    // Home with the feed shown: only the extra tabs go
+    homeShown: `[data-xnf-tab="other"] { display: none !important; }`,
     explore: [
       `${PRIMARY} section,`,
       `${PRIMARY} [role="tablist"] { display: none !important; }`,
     ].join('\n'),
   };
+  css.push(
+    `#xnf-feedbox { padding: 40px 24px; text-align: center; font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: rgb(113, 118, 123); }`,
+    `#xnf-feedbox button, #xnf-hidefeed { font: 600 15px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; border-radius: 999px; cursor: pointer; }`,
+    `#xnf-feedbox button { margin-top: 16px; padding: 10px 20px; border: 1px solid rgb(83, 100, 113); background: transparent; color: rgb(29, 155, 240); }`,
+    `#xnf-hidefeed { position: fixed; z-index: 2147483000; left: 12px; bottom: 76px; padding: 9px 14px; border: 0;`,
+    `  background: rgba(39, 44, 48, .92); color: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); }`,
+    `@media (min-width: 700px) { #xnf-hidefeed { bottom: 20px; left: auto; right: 20px; } }`,
+    // A clickbait post: its contents are hidden and the cell shows a thin bar instead
+    `[data-xnf-bait]:not([data-xnf-open]) > * { display: none !important; }`,
+    `[data-xnf-bait]:not([data-xnf-open])::before { content: "Hidden: looks like clickbait \\00b7  tap to show"; display: block; cursor: pointer;`,
+    `  padding: 10px 16px; font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: rgb(113, 118, 123);`,
+    `  border-bottom: 1px solid rgba(113, 118, 123, .3); }`
+  );
   if (HIDE_SIDEBAR) {
     css.push(
       `html:not(.xnf-search) ${SIDEBAR} section,`,
@@ -115,20 +148,34 @@
   // ---- Which page we're on (X changes pages without reloading) ----
   let lastPath = null;
   let page = '';
-  function updatePage() {
+  // "Show feed" lasts until you close the tab (or tap "Hide feed")
+  let feedShown = false;
+  try { feedShown = sessionStorage.getItem('xnf-feed') === '1'; } catch (e) {}
+  function setFeedShown(on) {
+    feedShown = on;
+    try { on ? sessionStorage.setItem('xnf-feed', '1') : sessionStorage.removeItem('xnf-feed'); } catch (e) {}
+    updatePage(true);
+    sweep();
+    if (on) window.scrollTo(0, 0);
+  }
+
+  function updatePage(force) {
     const html = document.documentElement;
     if (!html) return;
     addStyle();
     const p = location.pathname.replace(/\/+$/, '') || '/';
-    if (p === lastPath && html.classList.contains('xnf-ready')) return;
+    if (!force && p === lastPath && html.classList.contains('xnf-ready')) return;
     lastPath = p;
     page = isPostPath(p) ? 'post'
       : (p === '/home' || p === '/') ? 'home'
       : /^\/explore(\/|$)/.test(p) ? 'explore' : '';
     let want = '';
-    if (page !== 'post') {
+    if (page === 'home' && HIDE_HOME && feedShown) {
+      want = PAGE_CSS.homeShown;
+    } else if (page !== 'post') {
       want = HOME_TIMELINE_CSS;
       if ((page === 'home' && HIDE_HOME) || (page === 'explore' && HIDE_EXPLORE)) want += '\n' + PAGE_CSS[page];
+      if (page === 'home') want += '\n' + PAGE_CSS.homeShown;
     }
     if (pageStyle.textContent !== want) pageStyle.textContent = want;
     html.classList.add('xnf-ready');
@@ -152,7 +199,7 @@
       `timelines: ${labels.join(' | ') || 'none'}\ncells: ${document.querySelectorAll('[data-testid="cellInnerDiv"]').length}`;
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.3';
+  const GM_VERSION = '2.4';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -228,9 +275,123 @@
     if (el.hasAttribute(HIDE_ATTR)) el.removeAttribute(HIDE_ATTR);
   }
 
+  // ---- Home: top tabs, the "posted" pill, and the Show / Hide feed buttons ----
+  function sweepTabs() {
+    for (const tab of document.querySelectorAll('[role="tab"]')) {
+      if (tab.closest(SIDEBAR)) continue;
+      const box = tab.parentElement && tab.parentElement.getAttribute('role') === 'presentation' ? tab.parentElement : tab;
+      const want = KEEP_TABS.includes(textOf(tab)) ? 'keep' : 'other';
+      if (box.getAttribute('data-xnf-tab') !== want) box.setAttribute('data-xnf-tab', want);
+    }
+    // The "+" (add or manage tabs) button next to the tab list
+    for (const list of document.querySelectorAll('[role="tablist"]')) {
+      if (list.closest(SIDEBAR)) continue;
+      let up = list.parentElement;
+      for (let i = 0; up && i < 3; i++, up = up.parentElement) {
+        for (const b of up.querySelectorAll('a, button, [role="button"]')) {
+          if (list.contains(b) || b.closest('[role="tab"]') || b.querySelector('[role="tab"]')) continue;
+          const label = ((b.getAttribute('aria-label') || '') + ' ' + textOf(b)).trim().toLowerCase();
+          if (label === '+' || /\b(tabs?|add|manage|pin|pinned|customi[sz]e)\b/.test(label)) b.setAttribute('data-xnf-tab', 'other');
+        }
+      }
+    }
+  }
+
+  // "↑ (faces) posted" / "Show 12 posts": only shows up for the hidden feed
+  function sweepPill() {
+    for (const el of document.querySelectorAll(`[aria-label*="new post" i], [aria-label*="new tweet" i], ${PRIMARY} [role="button"], ${PRIMARY} button`)) {
+      if (el.hasAttribute('data-xnf-pill')) continue;
+      const label = (el.getAttribute('aria-label') || '').toLowerCase();
+      const t = textOf(el);
+      if (/new (posts|tweets)/.test(label) || (t.length < 40 && /(^|\s)posted$|^show \d+ (posts|tweets)$|^\d+ new (posts|tweets)$/.test(t))) {
+        el.setAttribute('data-xnf-pill', '');
+      }
+    }
+  }
+
+  let feedBox = null;
+  let hideBtn = null;
+  function sweepFeedButtons() {
+    const onHome = page === 'home' && HIDE_HOME;
+    const pc = document.querySelector(PRIMARY);
+    if (onHome && !feedShown && pc) {
+      if (!feedBox) {
+        feedBox = document.createElement('div');
+        feedBox.id = 'xnf-feedbox';
+        feedBox.appendChild(document.createTextNode('Home feed hidden. Search, Notifications, Messages and links people send you still work.'));
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = 'Show feed';
+        b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); setFeedShown(true); });
+        feedBox.appendChild(document.createElement('br'));
+        feedBox.appendChild(b);
+      }
+      if (feedBox.parentElement !== pc || pc.lastElementChild !== feedBox) pc.appendChild(feedBox);
+    } else if (feedBox && feedBox.isConnected) {
+      feedBox.remove();
+    }
+    if (onHome && feedShown && document.body) {
+      if (!hideBtn) {
+        hideBtn = document.createElement('button');
+        hideBtn.id = 'xnf-hidefeed';
+        hideBtn.type = 'button';
+        hideBtn.textContent = 'Hide feed';
+        hideBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); setFeedShown(false); window.scrollTo(0, 0); });
+      }
+      if (!hideBtn.isConnected) document.body.appendChild(hideBtn);
+    } else if (hideBtn && hideBtn.isConnected) {
+      hideBtn.remove();
+    }
+  }
+
+  // ---- Clickbait in the shown feed ----
+  function baitReason(text) {
+    const t = text.trim();
+    if (!t) return '';
+    const lower = t.toLowerCase();
+    if (BAIT_ENDINGS.test(t)) return 'cliffhanger ending';
+    for (const ph of BAIT_PHRASES) if (lower.includes(ph)) return 'bait phrase: ' + ph.trim();
+    if (BAIT_LISTICLE.test(t)) return 'list teaser';
+    return '';
+  }
+
+  function sweepBait() {
+    if (!HIDE_CLICKBAIT || page !== 'home' || !feedShown) return;
+    for (const cell of document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`)) {
+      if (cell.hasAttribute('data-xnf-open')) continue;
+      const art = cell.querySelector('article');
+      // The post's own text (not a quoted post's), without X's "Show more" link
+      const tt = art && art.querySelector('[data-testid="tweetText"]');
+      const text = tt ? tt.innerText || tt.textContent || '' : '';
+      const sig = text.length + ':' + text.slice(0, 40);
+      if (cell.getAttribute('data-xnf-checked') === sig) continue;
+      cell.setAttribute('data-xnf-checked', sig);
+      // X cuts long posts short with "Show more": that "…" is X's, not the author's
+      const cutByX = !!(art && art.querySelector('[data-testid="tweet-text-show-more-link"]'));
+      const why = text ? baitReason(cutByX ? text.replace(/(\.\.\.|…)\s*$/, '') : text) : '';
+      if (why) cell.setAttribute('data-xnf-bait', why);
+      else if (cell.hasAttribute('data-xnf-bait')) cell.removeAttribute('data-xnf-bait');
+    }
+  }
+
+  // Tap the "Hidden: looks like clickbait" bar to open that post
+  document.addEventListener('click', (e) => {
+    const cell = e.target && e.target.closest && e.target.closest('[data-xnf-bait]:not([data-xnf-open])');
+    if (!cell) return;
+    e.preventDefault();
+    e.stopPropagation();
+    cell.setAttribute('data-xnf-open', '');
+  }, true);
+
   function sweep() {
     updatePage();
     if (document.body) {
+      if (page === 'home' && HIDE_HOME) {
+        sweepTabs();
+        if (!feedShown) sweepPill();
+        sweepBait();
+      }
+      sweepFeedButtons();
       sweepSidebar(document.body);
       sweepDiscover();
       showDebug();
