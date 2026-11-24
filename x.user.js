@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.7
+// @version      2.8
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -29,6 +29,7 @@
   const HIDE_EXPLORE = true;       // Explore's trends and tabs (the search box stays)
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
+  const SHOW_FEED_BUTTON = false;  // a "Show feed" button under the note (off: the feed can't be opened)
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
   const FOLD_CUT_OFF = true;       // posts X cuts short with "Read more" / "Show more" count as clickbait
   const CAPTIONS_OFF = true;       // videos start with captions off (tap CC to turn them on)
@@ -160,7 +161,10 @@
   let page = '';
   // "Show feed" lasts until you close the tab (or tap "Hide feed")
   let feedShown = false;
-  try { feedShown = sessionStorage.getItem('xnf-feed') === '1'; } catch (e) {}
+  try {
+    if (SHOW_FEED_BUTTON) feedShown = sessionStorage.getItem('xnf-feed') === '1';
+    else sessionStorage.removeItem('xnf-feed');
+  } catch (e) {}
   function setFeedShown(on) {
     feedShown = on;
     try { on ? sessionStorage.setItem('xnf-feed', '1') : sessionStorage.removeItem('xnf-feed'); } catch (e) {}
@@ -210,7 +214,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.7';
+  const GM_VERSION = '2.8';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -334,8 +338,10 @@
         b.type = 'button';
         b.textContent = 'Show feed';
         b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); setFeedShown(true); });
-        feedBox.appendChild(document.createElement('br'));
-        feedBox.appendChild(b);
+        if (SHOW_FEED_BUTTON) {
+          feedBox.appendChild(document.createElement('br'));
+          feedBox.appendChild(b);
+        }
       }
       if (feedBox.parentElement !== pc || pc.lastElementChild !== feedBox) pc.appendChild(feedBox);
     } else if (feedBox && feedBox.isConnected) {
