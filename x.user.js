@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.6
+// @version      2.7
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -30,6 +30,7 @@
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
+  const FOLD_CUT_OFF = true;       // posts X cuts short with "Read more" / "Show more" count as clickbait
   const CAPTIONS_OFF = true;       // videos start with captions off (tap CC to turn them on)
   const KEEP_TABS = ['for you', 'following']; // Home's top tabs to keep (the rest go)
 
@@ -48,7 +49,12 @@
     'comment below', 'drop a ', 'reply with', "here's the crazy part", 'here’s the crazy part',
     'the ending is', 'turned out to be', 'this changes everything', 'is going viral', 'went viral',
     "i'll wait", 'i’ll wait', 'thread below', 'a short thread', 'long thread',
+    'the first sign', 'the first one is', 'number one is', 'the biggest sign', 'the real reason is',
+    'the reason is simple', 'here is why', 'here is what', 'here is how',
   ];
+  // 4. Ends on a colon with nothing after it ("The first sign is this:"),
+  //    unless the post has a photo, video, link card or quoted post to point at
+  const BAIT_COLON = /[\p{L}\p{N})"'”’]\s*:\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u;
   // 3. List-style teasers: "7 ways to…", "12 things I learned…"
   const BAIT_LISTICLE = /^\s*\d{1,2}\s+(ways|things|tips|reasons|lessons|habits|signs|secrets|mistakes|rules|books|tools|questions)\b/i;
 
@@ -204,7 +210,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.6';
+  const GM_VERSION = '2.7';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -350,11 +356,12 @@
   }
 
   // ---- Clickbait in the shown feed ----
-  function baitReason(text) {
+  function baitReason(text, hasMedia) {
     const t = text.trim();
     if (!t) return '';
     const lower = t.toLowerCase();
     if (BAIT_ENDINGS.test(t)) return 'cliffhanger ending';
+    if (!hasMedia && BAIT_COLON.test(t) && !/https?:\/\/\S*$/.test(t)) return 'ends on a colon';
     for (const ph of BAIT_PHRASES) if (lower.includes(ph)) return 'bait phrase: ' + ph.trim();
     if (BAIT_LISTICLE.test(t)) return 'list teaser';
     return '';
@@ -371,9 +378,15 @@
       const sig = text.length + ':' + text.slice(0, 40);
       if (cell.getAttribute('data-xnf-checked') === sig) continue;
       cell.setAttribute('data-xnf-checked', sig);
-      // X cuts long posts short with "Show more": that "…" is X's, not the author's
-      const cutByX = !!(art && art.querySelector('[data-testid="tweet-text-show-more-link"]'));
-      const why = text ? baitReason(cutByX ? text.replace(/(\.\.\.|…)\s*$/, '') : text) : '';
+      // X cuts long posts short with "Read more" / "Show more" (a link, or
+      // sometimes plain text after the post): a teaser either way
+      const cutByX = !!(art && (art.querySelector('[data-testid="tweet-text-show-more-link"]') ||
+        [...art.querySelectorAll('a, button, [role="button"], span')].some(el => /^(read|show) more$/.test(textOf(el)) && !el.querySelector('span span'))));
+      const hasMedia = !!(art && (art.querySelector('[data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="card.wrapper"], video, img[src*="/media/"]') ||
+        art.querySelectorAll('[data-testid="tweetText"]').length > 1));
+      let why = '';
+      if (text && cutByX && FOLD_CUT_OFF) why = 'cut off with "Read more"';
+      else if (text) why = baitReason(cutByX ? text.replace(/(\.\.\.|…)\s*$/, '') : text, hasMedia);
       if (why) cell.setAttribute('data-xnf-bait', why);
       else if (cell.hasAttribute('data-xnf-bait')) cell.removeAttribute('data-xnf-bait');
     }
