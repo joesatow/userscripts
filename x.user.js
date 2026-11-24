@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.5
+// @version      2.6
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -78,7 +78,10 @@
   // on for every page except a single post, so a post someone sends you can
   // never be caught by it.
   const HOME_TIMELINE_CSS = HIDE_HOME
-    ? `div[aria-label^="Timeline: Your Home Timeline" i], div[aria-label*="Home Timeline" i] { display: none !important; }`
+    // Only the exact "Timeline: Your Home Timeline" label: X also labels the
+    // whole main column "Home timeline" on every page (profiles, posts), so a
+    // looser match blanks those pages
+    ? `div[aria-label^="Timeline: Your Home Timeline" i] { display: none !important; }`
     : '';
   // Rules for the page you're on; swapped in as you move around X
   const PAGE_CSS = {
@@ -193,7 +196,7 @@
         'font:12px/1.35 monospace;padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre';
       document.body.appendChild(debugBox);
     }
-    const tl = document.querySelector('div[aria-label*="Home Timeline" i]');
+    const tl = document.querySelector('div[aria-label^="Timeline: Your Home Timeline" i]');
     const labels = [...document.querySelectorAll(`${PRIMARY} [aria-label^="Timeline" i]`)].map(e => e.getAttribute('aria-label')).slice(0, 3);
     const msg = `X script ${GM_VERSION} running\npage: ${location.pathname} (${page || 'other'})\n` +
       `primaryColumn: ${!!document.querySelector(PRIMARY)}  home timeline: ${!!tl}\n` +
@@ -201,7 +204,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.5';
+  const GM_VERSION = '2.6';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
