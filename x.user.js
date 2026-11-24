@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.4
+// @version      2.5
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -30,6 +30,7 @@
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
+  const CAPTIONS_OFF = true;       // videos start with captions off (tap CC to turn them on)
   const KEEP_TABS = ['for you', 'following']; // Home's top tabs to keep (the rest go)
 
   // Clickbait checks (a post's text, any capitalization). A post is folded
@@ -196,10 +197,11 @@
     const labels = [...document.querySelectorAll(`${PRIMARY} [aria-label^="Timeline" i]`)].map(e => e.getAttribute('aria-label')).slice(0, 3);
     const msg = `X script ${GM_VERSION} running\npage: ${location.pathname} (${page || 'other'})\n` +
       `primaryColumn: ${!!document.querySelector(PRIMARY)}  home timeline: ${!!tl}\n` +
-      `timelines: ${labels.join(' | ') || 'none'}\ncells: ${document.querySelectorAll('[data-testid="cellInnerDiv"]').length}`;
+      `timelines: ${labels.join(' | ') || 'none'}\ncells: ${document.querySelectorAll('[data-testid="cellInnerDiv"]').length}` +
+      captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.4';
+  const GM_VERSION = '2.5';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -394,8 +396,106 @@
       sweepFeedButtons();
       sweepSidebar(document.body);
       sweepDiscover();
+      sweepCaptions();
       showDebug();
     }
+  }
+
+  // ---- Captions off by default ----
+  // X's videos can carry captions two ways: as tracks on the video itself, or
+  // drawn by X's player behind its CC button. This turns the tracks off and,
+  // if the CC button says captions are on, taps it once per video. Once you
+  // tap CC yourself on a video, it leaves that video alone.
+  const CC_LABEL = /caption|subtitle|\bcc\b/i;
+  const CC_ON_LABEL = /(turn off|hide|disable|stop)\s.*(caption|subtitle|cc)|(caption|subtitle)s?\s*(are\s*)?on\b|(caption|subtitle)s?:\s*on\b/i;
+  const ccLeftAlone = new WeakSet(); // videos where you tapped CC yourself
+  let ccPrograms = 0;                // our own CC taps in flight (so they aren't mistaken for yours)
+  let ccLog = [];
+
+  function playerOf(el) {
+    return el.closest('[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [aria-label*="video" i][role="group"]') ||
+      el.closest('div:has(> video)') || el.parentElement;
+  }
+
+  function ccButtonsNear(video) {
+    // Climb from the video until a level holds a CC button (X puts the controls next to the video)
+    let up = video.parentElement;
+    for (let i = 0; up && i < 8; i++, up = up.parentElement) {
+      const found = [...up.querySelectorAll('button, [role="button"], [role="menuitemcheckbox"], [role="switch"]')]
+        .filter(b => CC_LABEL.test(b.getAttribute('aria-label') || '') || /^cc$/i.test(textOf(b)));
+      if (found.length) return found;
+      if (up.querySelectorAll('video').length > 1) break; // reached a list of several videos
+    }
+    return [];
+  }
+
+  function ccIsOn(b) {
+    const pressed = b.getAttribute('aria-pressed') || b.getAttribute('aria-checked');
+    if (pressed === 'true') return true;
+    if (pressed === 'false') return false;
+    return CC_ON_LABEL.test(b.getAttribute('aria-label') || '');
+  }
+
+  function tracksOff(video) {
+    if (ccLeftAlone.has(video) || !video.textTracks) return;
+    for (const t of video.textTracks) {
+      if ((t.kind === 'captions' || t.kind === 'subtitles' || !t.kind) && t.mode !== 'disabled') {
+        t.mode = 'disabled';
+        ccLog.push('track off');
+      }
+    }
+  }
+
+  function captionsOff(video) {
+    if (!CAPTIONS_OFF || ccLeftAlone.has(video)) return;
+    if (!video.hasAttribute('data-xnf-cc')) {
+      video.setAttribute('data-xnf-cc', '');
+      if (video.textTracks) {
+        // X may switch a track back on when the video starts or changes quality
+        video.textTracks.addEventListener('addtrack', () => tracksOff(video));
+        video.textTracks.addEventListener('change', () => tracksOff(video));
+      }
+    }
+    tracksOff(video);
+    const src = video.currentSrc || video.src || video.getAttribute('poster') || 'x';
+    if (video.getAttribute('data-xnf-cc') === src) return; // CC button already handled for this video
+    const btns = ccButtonsNear(video);
+    if (!btns.length) return;
+    video.setAttribute('data-xnf-cc', src);
+    for (const b of btns) {
+      if (!ccIsOn(b)) continue;
+      ccPrograms++;
+      try { b.click(); } finally { ccPrograms--; }
+      ccLog.push('tapped CC: ' + (b.getAttribute('aria-label') || 'cc'));
+    }
+  }
+
+  function sweepCaptions() {
+    if (!CAPTIONS_OFF) return;
+    for (const v of document.querySelectorAll('video')) captionsOff(v);
+  }
+
+  // Your own tap on CC: leave that video's captions as you set them
+  document.addEventListener('click', (e) => {
+    if (ccPrograms || !e.isTrusted) return;
+    const b = e.target && e.target.closest && e.target.closest('button, [role="button"], [role="menuitemcheckbox"], [role="switch"]');
+    if (!b || !(CC_LABEL.test(b.getAttribute('aria-label') || '') || /^cc$/i.test(textOf(b)))) return;
+    const p = playerOf(b);
+    const vids = p ? p.querySelectorAll('video') : [];
+    (vids.length ? vids : document.querySelectorAll('video')).forEach(v => ccLeftAlone.add(v));
+  }, true);
+  // Videos that start or switch source after the page has settled
+  for (const ev of ['loadedmetadata', 'play']) {
+    document.addEventListener(ev, (e) => { if (e.target && e.target.tagName === 'VIDEO') captionsOff(e.target); }, true);
+  }
+
+  function captionDebug() {
+    if (!CAPTIONS_OFF) return '';
+    const v = document.querySelector('video');
+    if (!v) return '';
+    const tracks = v.textTracks ? [...v.textTracks].map(t => t.kind + ':' + t.mode).join(',') : 'n/a';
+    const btns = ccButtonsNear(v).map(b => `"${b.getAttribute('aria-label') || textOf(b)}" pressed=${b.getAttribute('aria-pressed') || b.getAttribute('aria-checked') || '-'}`);
+    return `\nvideo tracks: ${tracks || 'none'}\nCC buttons: ${btns.join(' | ') || 'none found'}\ncc: ${ccLog.slice(-3).join(', ') || '-'}`;
   }
 
   // ---- Start ----
