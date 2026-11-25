@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.8
+// @version      2.9
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -32,6 +32,8 @@
   const SHOW_FEED_BUTTON = false;  // a "Show feed" button under the note (off: the feed can't be opened)
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
   const FOLD_CUT_OFF = true;       // posts X cuts short with "Read more" / "Show more" count as clickbait
+  const HIDE_GROK = true;          // the Grok button in the bottom bar / left menu
+  const HIDE_PREMIUM = true;       // the Subscribe / Premium buttons
   const CAPTIONS_OFF = true;       // videos start with captions off (tap CC to turn them on)
   const KEEP_TABS = ['for you', 'following']; // Home's top tabs to keep (the rest go)
 
@@ -118,6 +120,19 @@
     `  padding: 10px 16px; font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: rgb(113, 118, 123);`,
     `  border-bottom: 1px solid rgba(113, 118, 123, .3); }`
   );
+  if (HIDE_GROK) {
+    css.push(
+      `a[href="/i/grok"], a[href^="/i/grok?"], a[href^="/i/grok/"], [data-testid="AppTabBar_Grok_Link"],`,
+      `nav a[aria-label="Grok" i] { display: none !important; }`
+    );
+  }
+  if (HIDE_PREMIUM) {
+    css.push(
+      `a[href="/i/premium_sign_up"], a[href^="/i/premium_sign_up?"], a[href="/i/premium"], a[href^="/i/premium?"],`,
+      `a[href^="/i/verified-choose"], [data-testid="premium-signup-tab"], [data-testid="premium-hub-tab"],`,
+      `[data-testid="TopNavBar"] a[href*="premium"] { display: none !important; }`
+    );
+  }
   if (HIDE_SIDEBAR) {
     css.push(
       `html:not(.xnf-search) ${SIDEBAR} section,`,
@@ -214,7 +229,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.8';
+  const GM_VERSION = '2.9';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -307,6 +322,39 @@
           if (list.contains(b) || b.closest('[role="tab"]') || b.querySelector('[role="tab"]')) continue;
           const label = ((b.getAttribute('aria-label') || '') + ' ' + textOf(b)).trim().toLowerCase();
           if (label === '+' || /\b(tabs?|add|manage|pin|pinned|customi[sz]e)\b/.test(label)) b.setAttribute('data-xnf-tab', 'other');
+        }
+      }
+      // While the feed is hidden, the whole tab row goes (with its "+"): climb
+      // from the tab list to the row, stopping below the part with the avatar/logo
+      if (!feedShown) {
+        let row = list;
+        while (row.parentElement && row.parentElement !== document.body) {
+          const up = row.parentElement;
+          if (up.matches(PRIMARY) || up.querySelector('[data-testid="DashButton_ProfileIcon_Link"], [data-testid="SideNav_AccountSwitcher_Button"], img[src*="profile_images"], #xnf-feedbox, section')) break;
+          const h = up.getBoundingClientRect().height;
+          if (h > 80) break;
+          row = up;
+        }
+        if (row !== list && row.getAttribute('data-xnf-tab') !== 'row') row.setAttribute('data-xnf-tab', 'row');
+      }
+    }
+  }
+
+  // Subscribe / Grok buttons that the style rules didn't catch (matched by
+  // their label or text, only in the top bar and the menus)
+  function sweepButtons() {
+    if (!HIDE_GROK && !HIDE_PREMIUM) return;
+    for (const b of document.querySelectorAll('a, button, [role="button"], [role="link"]')) {
+      if (b.hasAttribute(HIDE_ATTR) || (b.textContent || '').length > 20) continue;
+      if (b.closest('article, [data-testid="cellInnerDiv"]')) continue;
+      const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
+      const t = textOf(b);
+      if (HIDE_GROK && (label === 'grok' || (t === 'grok' && b.closest('nav')))) { hide(b, 'grok'); continue; }
+      if (HIDE_PREMIUM && (t === 'subscribe' || t === 'premium' || label === 'premium' || label === 'subscribe to premium' || t === 'get verified')) {
+        // Only the app's own Subscribe (top bar or menus), never one on a profile
+        const r = b.getBoundingClientRect();
+        if (b.closest('nav, header, [data-testid="TopNavBar"]') || (r.height > 0 && r.top < 90)) {
+          hide(b, 'premium');
         }
       }
     }
@@ -416,6 +464,7 @@
         sweepBait();
       }
       sweepFeedButtons();
+      sweepButtons();
       sweepSidebar(document.body);
       sweepDiscover();
       sweepCaptions();
