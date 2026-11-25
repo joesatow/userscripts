@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TikTok
 // @namespace    joesatow-tiktok
-// @version      2.0
-// @description  Removes TikTok's "Log in" pop-ups when you're not logged in, without a flash, and keeps the page clickable and scrollable.
+// @version      2.1
+// @description  Removes TikTok's "Log in" pop-ups and its "Open app" / "Watch on TikTok" banners, starts videos paused (your first tap plays with sound), and keeps the page clickable and scrollable.
 // @match        https://www.tiktok.com/*
 // @match        https://m.tiktok.com/*
 // @run-at       document-start
@@ -11,8 +11,20 @@
 // @downloadURL  https://raw.githubusercontent.com/joesatow/userscripts/main/tiktok.user.js
 // ==/UserScript==
 
+// What it does:
+// - Removes "Log in" pop-ups and keeps the page clickable and scrollable.
+// - Removes the "TikTok / Open app" banner at the top and the "Enjoy more
+//   content in the app / Watch on TikTok" banner at the bottom.
+// - Videos open paused. Your first tap starts the one on screen, with sound
+//   (browsers don't allow sound before a tap). After that, videos play as
+//   normal. Set START_PAUSED to false to turn this off.
+
 (function () {
   'use strict';
+
+  // ---- Settings ----
+  const START_PAUSED = true; // videos wait paused until your first tap, which starts one with sound
+  const SOUND_ON = true;     // that first tap turns the sound on
 
   // Text that marks a login prompt (any capitalization)
   const LOGIN_TEXT = [
@@ -49,6 +61,12 @@
        only shown once it has had time to fill in and clearly isn't a login
        prompt. This is what stops the login box flashing on screen. */
     :is(${DIALOGS}, ${BACKDROPS}):not([data-tnf-ok]) { visibility: hidden !important; }
+
+    /* "Open app" / "Watch on TikTok" banners (found by their wording below;
+       these are TikTok's usual names for them, to catch them before they draw) */
+    [class*="OpenAppBanner"], [class*="DivOpenApp"], [class*="AppDownloadBanner"],
+    [class*="DownloadBanner"], [class*="BottomAppBanner"], [class*="SmartBanner"],
+    [data-tnf-banner] { display: none !important; }
 
     /* TikTok freezes the page while its pop-up is open; undo that */
     html.tnf-unlock, html.tnf-unlock body {
@@ -216,13 +234,133 @@
     document.documentElement.classList.add('tnf-unlock');
   }
 
+  // ---- "Open app" banners ----
+  // Each banner is found by a phrase in it, then the biggest box around that
+  // phrase is hidden as long as the box holds nothing but the banner's own
+  // wording (never the video, captions or the search bar).
+  const BANNERS = [
+    { find: ['open app', 'global video community'], allowed: ['tiktok', 'global video community', 'open app'] },
+    { find: ['enjoy more content in the app', 'watch on tiktok'], allowed: ['enjoy more content in the app', 'watch on tiktok', 'tiktok'] },
+  ];
+
+  function leftover(el, allowed) {
+    let t = (el.textContent || '').toLowerCase();
+    for (const a of allowed) t = t.split(a).join('');
+    return t.replace(/[\s ​·•|]+/g, '').length;
+  }
+
+  function bannerBox(start, allowed) {
+    let box = null;
+    for (let el = start; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      if (el.querySelector('video, input, textarea')) break;
+      if (leftover(el, allowed) > 0) break;
+      const r = el.getBoundingClientRect();
+      if (r.height > innerHeight * 0.4) break;
+      box = el;
+    }
+    return box;
+  }
+
+  function hideBanners() {
+    if (!document.body) return;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const found = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const t = n.nodeValue;
+      if (t.length < 6 || t.length > 60) continue;
+      const lt = t.trim().toLowerCase();
+      for (const b of BANNERS) if (b.find.includes(lt)) found.push([n.parentElement, b]);
+    }
+    for (const [el, b] of found) {
+      if (!el || el.closest('[data-tnf-banner], [data-tnf-hidden]')) continue;
+      const box = bannerBox(el, b.allowed);
+      if (box) box.setAttribute('data-tnf-banner', '');
+    }
+  }
+
+  let bannerQueued = false;
+  function queueBanners() {
+    if (bannerQueued) return;
+    bannerQueued = true;
+    requestAnimationFrame(() => { bannerQueued = false; hideBanners(); });
+  }
+
+  // ---- Videos start paused ----
+  // Until your first tap, any video that starts playing is paused again.
+  // Your first tap goes through to TikTok as normal; just before TikTok sees
+  // it, sound is turned on (through TikTok's own "Unmute" button, so its
+  // icon matches); just after, if the video still isn't playing, it's
+  // started. So that one tap = playing, with sound.
+  let tapped = false;
+  const held = new WeakSet();
+
+  function pick() {
+    const vw = innerWidth, vh = innerHeight;
+    let best = null, bestScore = 0;
+    for (const v of document.querySelectorAll('video')) {
+      const r = v.getBoundingClientRect();
+      const w = Math.min(r.right, vw) - Math.max(r.left, 0);
+      const h = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+      if (w < 80 || h < 80) continue;
+      if (w * h > bestScore) { bestScore = w * h; best = v; }
+    }
+    return best;
+  }
+
+  function unmuteButton() {
+    return [...document.querySelectorAll('button, [role="button"], div[tabindex]')]
+      .find((b) => text(b) === 'unmute' || /^unmute/i.test(b.getAttribute('aria-label') || ''));
+  }
+
+  document.addEventListener('play', (e) => {
+    const v = e.target;
+    if (!START_PAUSED || tapped || !v || v.tagName !== 'VIDEO') return;
+    held.add(v);
+    v.pause();
+  }, true);
+  if (START_PAUSED) {
+    const pauseAll = () => document.querySelectorAll('video').forEach((v) => { if (!v.paused && !tapped) { held.add(v); v.pause(); } });
+    pauseAll();
+    document.addEventListener('DOMContentLoaded', pauseAll, { once: true });
+  }
+
+  let firstTap = null;
+  function finishFirstTap(v) {
+    if (firstTap !== v) return;
+    firstTap = null;
+    if (SOUND_ON && v.muted) v.muted = false;
+    if (v.paused) v.play().catch(() => {
+      // Safari said no to sound: play muted rather than not at all
+      v.muted = true;
+      v.play().catch(() => {});
+    });
+  }
+
+  window.addEventListener('click', (e) => {
+    if (!e.isTrusted || tapped) return;
+    tapped = true;
+    const v = pick();
+    if (!v) return;
+    firstTap = v;
+    held.delete(v);
+    if (SOUND_ON && v.muted) {
+      const btn = unmuteButton();
+      if (btn && !btn.contains(e.target)) { try { btn.click(); } catch (err) {} }
+    }
+    setTimeout(() => finishFirstTap(v), 250);
+  }, true);
+  window.addEventListener('click', (e) => {
+    if (e.isTrusted && firstTap) finishFirstTap(firstTap);
+  });
+
   // Check the instant anything changes, before the screen is redrawn
   let running = false;
   new MutationObserver(() => {
     if (running) return;
     running = true;
     try { clean(); } finally { running = false; }
+    queueBanners();
   }).observe(document.documentElement, { childList: true, subtree: true });
 
-  setInterval(clean, 1000);
+  setInterval(() => { clean(); hideBanners(); }, 1000);
 })();
