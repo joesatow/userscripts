@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TikTok
 // @namespace    joesatow-tiktok
-// @version      2.1
-// @description  Removes TikTok's "Log in" pop-ups and its "Open app" / "Watch on TikTok" banners, starts videos paused (your first tap plays with sound), and keeps the page clickable and scrollable.
+// @version      2.2
+// @description  Removes TikTok's "Log in" and "Open the app" pop-ups and its "Open app" / "Watch on TikTok" banners, makes videos fill the screen, starts videos paused (your first tap plays with sound), and keeps the page clickable and scrollable.
 // @match        https://www.tiktok.com/*
 // @match        https://m.tiktok.com/*
 // @run-at       document-start
@@ -18,6 +18,12 @@
 // - Videos open paused. Your first tap starts the one on screen, with sound
 //   (browsers don't allow sound before a tap). After that, videos play as
 //   normal. Set START_PAUSED to false to turn this off.
+// - Removes "use the app" pop-ups (e.g. "Open TikTok" / "Not now").
+// - Videos fill the whole screen, like the app, instead of stopping short
+//   where the bottom banner used to be. Set FULL_SCREEN to false to stop.
+//
+// Something not right? Add #tnf-debug to the end of the page address and
+// reload: a box shows the boxes around the video and their sizes.
 
 (function () {
   'use strict';
@@ -25,6 +31,7 @@
   // ---- Settings ----
   const START_PAUSED = true; // videos wait paused until your first tap, which starts one with sound
   const SOUND_ON = true;     // that first tap turns the sound on
+  const FULL_SCREEN = true;  // videos fill the screen down to the bottom
 
   // Text that marks a login prompt (any capitalization)
   const LOGIN_TEXT = [
@@ -34,9 +41,27 @@
     'log in to continue',
     'sign up for tiktok',
     'log in to see more',
+    // "Use the app" pop-ups
+    'open tiktok',
+    'open the app',
+    'open app',
+    'get the app',
+    'get tiktok',
+    'download tiktok',
+    'download the app',
+    'in the tiktok app',
+    'in the app',
+    'tiktok app',
+    'continue in app',
+    'switch to the app',
   ];
   // Buttons that dismiss it without logging in
-  const DISMISS_TEXT = ['continue as guest', 'not now', 'maybe later'];
+  const DISMISS_TEXT = ['continue as guest', 'not now', 'maybe later', 'stay in browser', 'continue in browser',
+    'continue on web', 'watch in browser', 'use browser', 'stay on web', 'cancel'];
+  // Wording of "use the app" pop-ups that aren't marked as dialogs
+  const APP_PROMPT_TEXT = ['open tiktok', 'open the app', 'get the app', 'get tiktok', 'download tiktok',
+    'download the app', 'in the tiktok app', 'in the app', 'tiktok app', 'continue in app', 'switch to the app',
+    'not now', 'stay in browser', 'continue in browser'];
 
   // Anything that looks like a pop-up window
   const DIALOGS = '[role="dialog"], [aria-modal="true"], [class*="ModalContainer"], [class*="DivModal"], [class*="TUXModal"]';
@@ -265,16 +290,40 @@
     if (!document.body) return;
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const found = [];
+    const appPromptNodes = [];
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const t = n.nodeValue;
-      if (t.length < 6 || t.length > 60) continue;
+      if (t.length < 6 || t.length > 200) continue;
       const lt = t.trim().toLowerCase();
       for (const b of BANNERS) if (b.find.includes(lt)) found.push([n.parentElement, b]);
+      if (APP_PROMPT_TEXT.some((p) => lt.includes(p))) appPromptNodes.push(n);
     }
     for (const [el, b] of found) {
       if (!el || el.closest('[data-tnf-banner], [data-tnf-hidden]')) continue;
       const box = bannerBox(el, b.allowed);
       if (box) box.setAttribute('data-tnf-banner', '');
+    }
+
+    // "Use the app" pop-ups that aren't marked as dialogs: the floating box
+    // (fixed in place, no video in it) around the wording
+    for (const n of appPromptNodes) {
+      const el = n.parentElement;
+      if (!el || el.closest('[data-tnf-banner], [data-tnf-hidden]')) continue;
+      let box = null;
+      for (let a = el; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+        if (a.querySelector('video')) break;
+        const pos = getComputedStyle(a).position;
+        if (pos === 'fixed') { box = a; break; }
+      }
+      if (!box) continue;
+      // Take its dimmed backdrop too when the box sits inside one
+      const up = box.parentElement;
+      if (up && up !== document.body && !up.querySelector('video') && getComputedStyle(up).position === 'fixed') box = up;
+      const dismiss = [...box.querySelectorAll('button, [role="button"], a, div[tabindex]')]
+        .find((b) => DISMISS_TEXT.includes(text(b)));
+      if (dismiss) { try { dismiss.click(); } catch (err) {} }
+      box.setAttribute('data-tnf-banner', '');
+      lastRemoval = Date.now();
     }
   }
 
@@ -282,7 +331,7 @@
   function queueBanners() {
     if (bannerQueued) return;
     bannerQueued = true;
-    requestAnimationFrame(() => { bannerQueued = false; hideBanners(); });
+    requestAnimationFrame(() => { bannerQueued = false; hideBanners(); fillScreen(); });
   }
 
   // ---- Videos start paused ----
@@ -353,6 +402,79 @@
     if (e.isTrusted && firstTap) finishFirstTap(firstTap);
   });
 
+  // ---- Full screen ----
+  // TikTok sizes the video's boxes to stop where its bottom banner was, which
+  // leaves a black strip once the banner is gone. Going from the outside in,
+  // each box around the video that has empty space under it (after whatever
+  // sits below it, like the search bar) is stretched down to the bottom.
+  let stretched = new Set();
+  function fillScreen() {
+    if (!FULL_SCREEN || !document.body) return;
+    const v = pick();
+    if (!v) return;
+    const vh = innerHeight, vw = innerWidth;
+    const chain = [];
+    for (let el = v; el && el !== document.body && el !== document.documentElement; el = el.parentElement) chain.unshift(el);
+    for (const el of chain) {
+      if (el.closest('[data-tnf-hidden], [data-tnf-banner]')) return;
+      const r = el.getBoundingClientRect();
+      if (r.width < vw * 0.9 || r.top < -2 || r.top > vh * 0.25) continue; // not the player on screen now
+      // Bottom of this box plus whatever comes after it in the page
+      let below = r.bottom;
+      for (let sib = el.nextElementSibling; sib; sib = sib.nextElementSibling) {
+        const cs = getComputedStyle(sib);
+        if (cs.display === 'none' || cs.position === 'fixed' || cs.position === 'absolute') continue;
+        const sr = sib.getBoundingClientRect();
+        if (sr.height > 0) below = Math.max(below, sr.bottom);
+      }
+      // Room left inside the box around it (the screen, for the outermost)
+      const up = el.parentElement;
+      const limit = up === document.body ? vh : Math.min(vh, up.getBoundingClientRect().bottom);
+      const gap = limit - below;
+      if (gap <= 2 || below < vh * 0.4) continue;
+      setHeight(el, Math.round(r.height + gap));
+      stretched.add(el);
+    }
+  }
+  function unstretch() {
+    for (const el of stretched) ['height', 'max-height', 'min-height'].forEach((p) => el.style.removeProperty(p));
+    stretched = new Set();
+  }
+  function setHeight(el, h) {
+    el.style.setProperty('height', h + 'px', 'important');
+    el.style.setProperty('max-height', 'none', 'important');
+    el.style.setProperty('min-height', h + 'px', 'important');
+  }
+  // Black behind everything, so nothing light shows at the edges
+  const fsStyle = document.createElement('style');
+  fsStyle.textContent = FULL_SCREEN ? `
+    html, body { background: #000 !important; }
+  ` : '';
+  (document.head || document.documentElement).appendChild(fsStyle);
+  addEventListener('resize', () => setTimeout(() => { unstretch(); fillScreen(); }, 100));
+  document.addEventListener('scrollend', fillScreen, true);
+
+  // ---- Debug box (#tnf-debug) ----
+  function debug() {
+    if (!/tnf-debug/.test(location.hash) || !document.body) return;
+    let box = document.getElementById('tnf-debug');
+    if (!box) {
+      box = document.createElement('pre');
+      box.id = 'tnf-debug';
+      box.style.cssText = 'position:fixed;left:4px;right:4px;top:40px;z-index:2147483647;background:rgba(0,0,0,.85);color:#0f0;font:10px/1.3 monospace;padding:6px;white-space:pre-wrap;pointer-events:none;max-height:70vh;overflow:hidden';
+      document.documentElement.appendChild(box);
+    }
+    const v = pick();
+    const lines = ['TikTok 2.2  screen ' + innerWidth + 'x' + innerHeight + '  videos ' + document.querySelectorAll('video').length];
+    for (let el = v; el && el !== document.documentElement; el = el.parentElement) {
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      lines.push(el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0].slice(0, 40) + '  ' + Math.round(r.top) + '..' + Math.round(r.bottom) + '  ' + cs.position + (stretched.has(el) ? '  STRETCHED' : ''));
+    }
+    lines.push('hidden banners: ' + document.querySelectorAll('[data-tnf-banner]').length + '  hidden pop-ups: ' + document.querySelectorAll('[data-tnf-hidden]').length);
+    box.textContent = lines.join('\n');
+  }
+
   // Check the instant anything changes, before the screen is redrawn
   let running = false;
   new MutationObserver(() => {
@@ -362,5 +484,5 @@
     queueBanners();
   }).observe(document.documentElement, { childList: true, subtree: true });
 
-  setInterval(() => { clean(); hideBanners(); }, 1000);
+  setInterval(() => { clean(); hideBanners(); fillScreen(); debug(); }, 1000);
 })();
