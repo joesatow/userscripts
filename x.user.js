@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.2
+// @version      3.3
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -120,7 +120,7 @@
     `@media (min-width: 700px) { #xnf-hidefeed { bottom: 20px; left: auto; right: 20px; } }`,
     // A clickbait post: its contents are hidden and the cell shows a thin bar instead
     `[data-xnf-bait]:not([data-xnf-open]) > * { display: none !important; }`,
-    `[data-xnf-bait]:not([data-xnf-open])::before { content: "Hidden: looks like clickbait \\00b7  tap to show"; display: block; cursor: pointer;`,
+    `[data-xnf-bait]:not([data-xnf-open])::before { content: "Hidden: clickbait (" attr(data-xnf-bait) ") \\00b7  tap to show"; display: block; cursor: pointer;`,
     `  padding: 10px 16px; font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: rgb(113, 118, 123);`,
     `  border-bottom: 1px solid rgba(113, 118, 123, .3); }`
   );
@@ -233,7 +233,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.2';
+  const GM_VERSION = '3.3';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -425,6 +425,39 @@
     return '';
   }
 
+  // A post X cut short with "Show more" is folded only if the part you can see
+  // reads like a teaser: a story set up to stop right before the payoff.
+  // Signals add up; 2 points folds it. A long post that already says something
+  // (news, an argument, a quote) scores 0 and stays.
+  const HOOK_LINE = /\b(then|until|that'?s when|that’s when|turns out|guess what|here'?s (what|why|how|the)|here’s (what|why|how|the)|the (reason|answer|result|truth|secret|crazy part|twist|kicker|catch)|what happened|what (he|she|they) (said|did)|so i|so he|so she|so we|and then|but then|this is (what|why|how)|ended up|you('?ll| will) never|i couldn'?t believe|i couldn’t believe|it gets worse|it gets better|plot twist|long story short)\b/i;
+  const STORY_START = /^\s*(i|i'm|i’m|i've|i’ve|my|me|we|our|yesterday|last (night|week|month|year)|today|this morning|this (guy|girl|man|woman|kid|dude|lady)|a (man|woman|guy|girl|kid|stranger|friend|coworker|waiter|waitress|cop|customer|clerk|teacher|doctor|nurse|dad|mom|father|mother|couple|family)|my (wife|husband|boss|dad|mom|son|daughter|friend|girlfriend|boyfriend|neighbor|landlord))\b/i;
+  const READER_HOOK = /\b(can you guess|guess what|want to know|you won'?t believe|you won’t believe|wait until|wait till|read (this|until|till)|stay with me|hear me out|buckle up|let me explain|here'?s the thing|here’s the thing)\b/i;
+
+  function teaserReason(shown) {
+    const t = shown.trim();
+    if (!t) return '';
+    let score = 0;
+    const why = [];
+    const lines = t.split(/\n+/).map(l => l.trim()).filter(Boolean);
+    // The last (cut-off) sentence: the part after the final . ! or ?
+    const parts = t.split(/(?<=[.!?]["”’']?)\s+/);
+    const last = parts[parts.length - 1] || '';
+    const lastLine = lines[lines.length - 1] || '';
+    // Only counts when the cut lands mid-sentence (a finished sentence isn't a cliffhanger)
+    const midSentence = !/[.!?]["”’')]*$/.test(t);
+    if (midSentence && (HOOK_LINE.test(last) || HOOK_LINE.test(lastLine))) { score += 2; why.push('hook right before the cut'); }
+    if (READER_HOOK.test(t)) { score += 2; why.push('talks to the reader'); }
+    if (STORY_START.test(t)) { score += 1; why.push('personal story'); }
+    const dialogue = lines.filter(l => /^[A-Z][\w .'’-]{0,24}:\s*["“]/.test(l)).length;
+    if (dialogue >= 2) { score += 1; why.push('dialogue'); }
+    if (lines.length >= 4) {
+      const words = lines.map(l => l.split(/\s+/).length).sort((a, b) => a - b);
+      if (words[Math.floor(words.length / 2)] <= 8) { score += 1; why.push('short punchy lines'); }
+    }
+    if (/[:—–-]\s*$/.test(t)) { score += 1; why.push('cut right after a colon'); }
+    return score >= 2 ? 'teaser: ' + why.join(', ') : '';
+  }
+
   function sweepBait() {
     if (!HIDE_CLICKBAIT || page !== 'home' || !feedShown) return;
     for (const cell of document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`)) {
@@ -444,7 +477,10 @@
         art.querySelectorAll('[data-testid="tweetText"]').length > 1));
       let why = '';
       if (text && cutByX && FOLD_CUT_OFF) why = 'cut off with "Read more"';
-      else if (text) why = baitReason(cutByX ? text.replace(/(\.\.\.|…)\s*$/, '') : text, hasMedia);
+      else if (text && cutByX) {
+        const shown = text.replace(/(\.\.\.|…)\s*$/, '');
+        why = baitReason(shown, hasMedia) || teaserReason(shown);
+      } else if (text) why = baitReason(text, hasMedia);
       if (why) cell.setAttribute('data-xnf-bait', why);
       else if (cell.hasAttribute('data-xnf-bait')) cell.removeAttribute('data-xnf-bait');
     }
