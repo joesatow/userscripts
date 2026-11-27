@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.7
+// @version      3.8
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -125,6 +125,13 @@
     `  padding: 10px 16px; font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: rgb(113, 118, 123);`,
     `  border-bottom: 1px solid rgba(113, 118, 123, .3); }`
   );
+  if (CAPTIONS_OFF) {
+    // Captions drawn by the browser are made invisible (tap CC on a video to show them)
+    css.push(
+      `video:not([data-xnf-cc-on])::cue { color: transparent !important; background: transparent !important;`,
+      `  background-color: transparent !important; text-shadow: none !important; outline: none !important; visibility: hidden; opacity: 0; }`
+    );
+  }
   if (HIDE_GROK) {
     css.push(
       `a[href="/i/grok"], a[href^="/i/grok?"], a[href^="/i/grok/"], [data-testid="AppTabBar_Grok_Link"],`,
@@ -234,7 +241,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.7';
+  const GM_VERSION = '3.8';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -560,83 +567,49 @@
   }
 
   // ---- Captions off by default ----
-  // X's videos can carry captions two ways: as tracks on the video itself, or
-  // drawn by X's player behind its CC button. This turns the tracks off and,
-  // if the CC button says captions are on, taps it once per video. Once you
-  // tap CC yourself on a video, it leaves that video alone.
+  // X shows captions through the browser itself: with CC on, one of the
+  // video's caption tracks is set to "showing" and the browser draws its cues.
+  // Switching tracks or tapping CC from a script fights X's player (3.0-3.6:
+  // broken scrubber, videos stopping early, or captions still on). Instead a
+  // style rule makes the drawn cues invisible, so nothing about the video or
+  // the player changes. Your own tap on CC shows them for that video.
   const CC_LABEL = /caption|subtitle|\bcc\b/i;
-  const CC_ON_LABEL = /(turn off|hide|disable|stop)\s.*(caption|subtitle|cc)|(caption|subtitle)s?\s*(are\s*)?on\b|(caption|subtitle)s?:\s*on\b/i;
-  const ccLeftAlone = new WeakSet(); // videos where you tapped CC yourself
-  let ccPrograms = 0;                // our own CC taps in flight (so they aren't mistaken for yours)
-  let ccLog = [];
+  const CC_BUTTON = '[data-testid="captions"], button, [role="button"], [role="menuitemcheckbox"], [role="switch"]';
 
   function playerOf(el) {
-    return el.closest('[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [aria-label*="video" i][role="group"]') ||
+    return el.closest('[data-testid="videoPlayer"], [data-testid="videoComponent"]') ||
       el.closest('div:has(> video)') || el.parentElement;
   }
 
-  function ccButtonsNear(video) {
-    // Climb from the video until a level holds a CC button (X puts the controls next to the video)
-    let up = video.parentElement;
-    for (let i = 0; up && i < 8; i++, up = up.parentElement) {
-      const found = [...up.querySelectorAll('button, [role="button"], [role="menuitemcheckbox"], [role="switch"]')]
-        .filter(b => CC_LABEL.test(b.getAttribute('aria-label') || '') || /^cc$/i.test(textOf(b)));
-      if (found.length) return found;
-      if (up.querySelectorAll('video').length > 1) break; // reached a list of several videos
-    }
-    return [];
+  function isCcButton(el) {
+    if (el.matches('[data-testid="captions"]') || el.closest('[data-testid="captions"]')) return true;
+    return CC_LABEL.test(el.getAttribute('aria-label') || '') || /^cc$/i.test(textOf(el));
   }
 
-  function ccIsOn(b) {
-    const pressed = b.getAttribute('aria-pressed') || b.getAttribute('aria-checked');
-    if (pressed === 'true') return true;
-    if (pressed === 'false') return false;
-    return CC_ON_LABEL.test(b.getAttribute('aria-label') || '');
-  }
+  function sweepCaptions() {} // nothing to do per page change: the style rule covers every video
 
-  function captionsOff(video) {
-    if (!CAPTIONS_OFF || ccLeftAlone.has(video)) return;
-    // Only through X's own CC button: switching the video's tracks directly
-    // (3.0-3.3) fought X's player and broke scrubbing / stopped videos early
-    const src = video.currentSrc || video.src || video.getAttribute('poster') || 'x';
-    if (video.getAttribute('data-xnf-cc') === src) return; // CC button already handled for this video
-    const btns = ccButtonsNear(video);
-    if (!btns.length) return;
-    video.setAttribute('data-xnf-cc', src);
-    for (const b of btns) {
-      if (!ccIsOn(b)) continue;
-      ccPrograms++;
-      try { b.click(); } finally { ccPrograms--; }
-      ccLog.push('tapped CC: ' + (b.getAttribute('aria-label') || 'cc'));
-    }
-  }
-
-  function sweepCaptions() {
-    if (!CAPTIONS_OFF) return;
-    for (const v of document.querySelectorAll('video')) captionsOff(v);
-  }
-
-  // Your own tap on CC: leave that video's captions as you set them
+  // Your tap on CC: show captions for that video from now on. If X already has
+  // them on (just hidden by us), the tap only reveals them, so one tap is enough.
   document.addEventListener('click', (e) => {
-    if (ccPrograms || !e.isTrusted) return;
-    const b = e.target && e.target.closest && e.target.closest('button, [role="button"], [role="menuitemcheckbox"], [role="switch"]');
-    if (!b || !(CC_LABEL.test(b.getAttribute('aria-label') || '') || /^cc$/i.test(textOf(b)))) return;
+    if (!CAPTIONS_OFF || !e.isTrusted || !e.target || !e.target.closest) return;
+    const b = e.target.closest(CC_BUTTON);
+    if (!b || !isCcButton(b)) return;
     const p = playerOf(b);
-    const vids = p ? p.querySelectorAll('video') : [];
-    (vids.length ? vids : document.querySelectorAll('video')).forEach(v => ccLeftAlone.add(v));
+    const v = p && p.querySelector('video');
+    if (!v || v.hasAttribute('data-xnf-cc-on')) return;
+    v.setAttribute('data-xnf-cc-on', '');
+    const xShowing = v.textTracks && [...v.textTracks].some(t => t.mode === 'showing');
+    if (xShowing) { e.preventDefault(); e.stopPropagation(); }
   }, true);
-  // Videos that start or switch source after the page has settled
-  for (const ev of ['loadedmetadata', 'play']) {
-    document.addEventListener(ev, (e) => { if (e.target && e.target.tagName === 'VIDEO') captionsOff(e.target); }, true);
-  }
 
   function captionDebug() {
     if (!CAPTIONS_OFF) return '';
     const v = document.querySelector('video');
     if (!v) return '';
     const tracks = v.textTracks ? [...v.textTracks].map(t => t.kind + ':' + t.mode).join(',') : 'n/a';
-    const btns = ccButtonsNear(v).map(b => `"${b.getAttribute('aria-label') || textOf(b)}" pressed=${b.getAttribute('aria-pressed') || b.getAttribute('aria-checked') || '-'}`);
-    return `\nvideo tracks: ${tracks || 'none'}\nCC buttons: ${btns.join(' | ') || 'none found'}\ncc: ${ccLog.slice(-3).join(', ') || '-'}`;
+    const p = playerOf(v);
+    const btn = p && p.querySelector('[data-testid="captions"]');
+    return `\nvideo tracks: ${tracks || 'none'}\nCC button: ${btn ? 'found' : 'not shown'}  captions shown: ${v.hasAttribute('data-xnf-cc-on')}`;
   }
 
   // ---- Start ----
