@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.0
+// @version      3.1
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -30,6 +30,9 @@
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
   const SHOW_FEED_BUTTON = true;   // a "Show feed" button under the note (off: the feed can't be opened)
+  // Posts in other languages are removed (X tags each post with its language).
+  // Add codes to keep more, e.g. ['en', 'es']. Empty list = keep every language.
+  const KEEP_LANGS = ['en'];
   const HIDE_ADS = true;           // posts labelled "Ad" / "Promoted" in feeds and replies
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
   const FOLD_CUT_OFF = true;       // posts X cuts short with "Read more" / "Show more" count as clickbait
@@ -230,7 +233,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.0';
+  const GM_VERSION = '3.1';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -462,14 +465,24 @@
     for (const cell of document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`)) {
       const art = cell.querySelector('article');
       if (!art) continue;
-      let ad = false;
-      for (const sp of art.querySelectorAll('span')) {
+      let why = '';
+      for (const sp of art.querySelectorAll('span, div')) {
         if (sp.childElementCount) continue;
         const t = (sp.textContent || '').trim();
-        if ((t === 'Ad' || t === 'Promoted') && !sp.closest('[data-testid="tweetText"]')) { ad = true; break; }
+        if ((t === 'Ad' || t === 'Promoted') && !sp.closest('[data-testid="tweetText"]')) { why = 'ad'; break; }
       }
-      if (ad && !isFocalCell(cell)) hide(cell, 'ad');
-      else if (cell.getAttribute(HIDE_ATTR) === 'ad') cell.removeAttribute(HIDE_ATTR);
+      // Backup: ads have no posting time (X shows "Ad" where "· 10h" would be)
+      if (!why && art.querySelector('[data-testid="User-Name"]') && !art.querySelector('time')) why = 'ad (no time)';
+      // Language: the post's own text, not a quoted post's
+      if (!why && KEEP_LANGS.length) {
+        const tt = art.querySelector('[data-testid="tweetText"][lang]');
+        const lang = tt ? (tt.getAttribute('lang') || '').toLowerCase().split('-')[0] : '';
+        // X's codes for no real language: und, zxx, qme (media), qam (mentions), qht (hashtags), qct, qst, art
+        if (lang && !KEEP_LANGS.includes(lang) && !/^(und|zxx|qme|qam|qht|qct|qst|qam|art)$/.test(lang)) why = 'language: ' + lang;
+      }
+      const cur = cell.getAttribute(HIDE_ATTR) || '';
+      if (why && !isFocalCell(cell)) { if (cur !== why) cell.setAttribute(HIDE_ATTR, why); }
+      else if (/^(ad|language)/.test(cur)) cell.removeAttribute(HIDE_ATTR);
     }
   }
 
