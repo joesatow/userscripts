@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.6
+// @version      3.7
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -29,6 +29,7 @@
   const HIDE_EXPLORE = true;       // Explore's trends and tabs (the search box stays)
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
+  const HIDE_FEED_BUTTON = false;  // a floating "Hide feed" button while the feed is shown (off: it hides again when you close the tab)
   const SHOW_FEED_BUTTON = true;   // a "Show feed" button under the note (off: the feed can't be opened)
   // Posts in other languages are removed (X tags each post with its language).
   // Add codes to keep more, e.g. ['en', 'es']. Empty list = keep every language.
@@ -233,7 +234,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.6';
+  const GM_VERSION = '3.7';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -403,7 +404,7 @@
     } else if (feedBox && feedBox.isConnected) {
       feedBox.remove();
     }
-    if (onHome && feedShown && document.body) {
+    if (HIDE_FEED_BUTTON && onHome && feedShown && document.body) {
       if (!hideBtn) {
         hideBtn = document.createElement('button');
         hideBtn.id = 'xnf-hidefeed';
