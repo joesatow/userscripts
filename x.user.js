@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.5
+// @version      3.6
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -44,7 +44,7 @@
   // Clickbait checks (a post's text, any capitalization). A post is folded
   // into a "Hidden: looks like clickbait" bar you can tap to open.
   // 1. Ends on a cliffhanger: "...", "…", or pointing down at a thread
-  const BAIT_ENDINGS = /(\.\.\.|…|👇+|⬇️+|🧵+|\(thread\)|a thread:?|thread:|(read|see|show) more:?|here'?s (what|why|how)( happened)?:?|the answer:?|story time:?)\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/iu;
+  const BAIT_ENDINGS = /(👇+|⬇️+|🧵+|\(thread\)|a thread:?|thread:|(read|see|show) more:?|here'?s (what|why|how)( happened)?:?|the answer:?|story time:?)\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/iu;
   // 2. Bait phrases anywhere in the text
   const BAIT_PHRASES = [
     "you won't believe", 'you won’t believe', 'what happened next', 'what he said next', 'what she said next',
@@ -233,7 +233,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.5';
+  const GM_VERSION = '3.6';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -423,6 +423,14 @@
     if (!t) return '';
     const lower = t.toLowerCase();
     if (BAIT_ENDINGS.test(t)) return 'cliffhanger ending';
+    // Ending on "..." / "…" only counts when it cuts off a setup ("Then I asked
+    // him two simple questions…"), not a musing after a full post ("2000.... hm...")
+    const ell = t.match(/^([\s\S]*?)(\.{3,}|…)+\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u);
+    if (ell) {
+      const before = ell[1].trim();
+      const lastSeg = before.split(/(?:[.!?]+["”’')]*|\.{3,}|…|\n)\s*/).filter(Boolean).pop() || '';
+      if (lastSeg.split(/\s+/).length >= 4 && (HOOK_LINE.test(lastSeg) || teaserReason(before))) return 'cliffhanger ending';
+    }
     if (!hasMedia && BAIT_COLON.test(t) && !/https?:\/\/\S*$/.test(t)) return 'ends on a colon';
     for (const ph of BAIT_PHRASES) if (lower.includes(ph)) return 'bait phrase: ' + ph.trim();
     if (BAIT_LISTICLE.test(t)) return 'list teaser';
