@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.3
+// @version      3.4
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -233,7 +233,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.3';
+  const GM_VERSION = '3.4';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -346,10 +346,14 @@
 
   // Subscribe / Grok buttons that the style rules didn't catch (matched by
   // their label or text, only in the top bar and the menus)
+  const buttonSeen = new WeakMap();
   function sweepButtons() {
     if (!HIDE_GROK && !HIDE_PREMIUM) return;
     for (const b of document.querySelectorAll('a, button, [role="button"], [role="link"]')) {
       if (b.hasAttribute(HIDE_ATTR) || (b.textContent || '').length > 20) continue;
+      const key = (b.getAttribute('aria-label') || '') + '|' + (b.textContent || '');
+      if (buttonSeen.get(b) === key) continue; // already checked, unchanged
+      buttonSeen.set(b, key);
       if (b.closest('article, [data-testid="cellInnerDiv"]')) continue;
       const label = (b.getAttribute('aria-label') || '').trim().toLowerCase();
       const t = textOf(b);
@@ -359,7 +363,7 @@
         const r = b.getBoundingClientRect();
         if (b.closest('nav, header, [data-testid="TopNavBar"]') || (r.height > 0 && r.top < 90)) {
           hide(b, 'premium');
-        }
+        } else buttonSeen.delete(b); // not placed yet: look again next time
       }
     }
   }
@@ -501,6 +505,10 @@
     for (const cell of document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`)) {
       const art = cell.querySelector('article');
       if (!art) continue;
+      const tt0 = art.querySelector('[data-testid="tweetText"]');
+      const sig = (art.querySelector('[data-testid="User-Name"]') || art).textContent.length + ':' + (tt0 ? tt0.textContent.slice(0, 30) : '');
+      if (cell.getAttribute('data-xnf-adsig') === sig) continue; // already checked, nothing changed
+      cell.setAttribute('data-xnf-adsig', sig);
       let why = '';
       for (const sp of art.querySelectorAll('span, div')) {
         if (sp.childElementCount) continue;
@@ -575,27 +583,10 @@
     return CC_ON_LABEL.test(b.getAttribute('aria-label') || '');
   }
 
-  function tracksOff(video) {
-    if (ccLeftAlone.has(video) || !video.textTracks) return;
-    for (const t of video.textTracks) {
-      if ((t.kind === 'captions' || t.kind === 'subtitles' || !t.kind) && t.mode !== 'disabled') {
-        t.mode = 'disabled';
-        ccLog.push('track off');
-      }
-    }
-  }
-
   function captionsOff(video) {
     if (!CAPTIONS_OFF || ccLeftAlone.has(video)) return;
-    if (!video.hasAttribute('data-xnf-cc')) {
-      video.setAttribute('data-xnf-cc', '');
-      if (video.textTracks) {
-        // X may switch a track back on when the video starts or changes quality
-        video.textTracks.addEventListener('addtrack', () => tracksOff(video));
-        video.textTracks.addEventListener('change', () => tracksOff(video));
-      }
-    }
-    tracksOff(video);
+    // Only through X's own CC button: switching the video's tracks directly
+    // (3.0-3.3) fought X's player and broke scrubbing / stopped videos early
     const src = video.currentSrc || video.src || video.getAttribute('poster') || 'x';
     if (video.getAttribute('data-xnf-cc') === src) return; // CC button already handled for this video
     const btns = ccButtonsNear(video);
@@ -644,7 +635,16 @@
 
     // Handle changes as they happen (before the screen is drawn)
     let queued = false;
-    const mo = new MutationObserver(() => {
+    // Changes inside a video player (the clock, the scrubber, the progress bar)
+    // happen many times a second while a video plays and never need a sweep
+    const PLAYER = '[data-testid="videoPlayer"], [data-testid="videoComponent"], [role="slider"]';
+    const mo = new MutationObserver((records) => {
+      let relevant = false;
+      for (const r of records) {
+        const el = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        if (!el || !el.closest(PLAYER)) { relevant = true; break; }
+      }
+      if (!relevant) return;
       updatePage();
       if (queued) return;
       queued = true;
