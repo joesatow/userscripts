@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.4
+// @version      3.5
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -233,7 +233,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.4';
+  const GM_VERSION = '3.5';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -446,10 +446,12 @@
     // The last (cut-off) sentence: the part after the final . ! or ?
     const parts = t.split(/(?<=[.!?]["”’']?)\s+/);
     const last = parts[parts.length - 1] || '';
-    const lastLine = lines[lines.length - 1] || '';
     // Only counts when the cut lands mid-sentence (a finished sentence isn't a cliffhanger)
     const midSentence = !/[.!?]["”’')]*$/.test(t);
-    if (midSentence && (HOOK_LINE.test(last) || HOOK_LINE.test(lastLine))) { score += 2; why.push('hook right before the cut'); }
+    // Look only at the clause the cut lands in ("So I pulled up the photos and"),
+    // not the whole paragraph, so an "and then" early in an argument doesn't count
+    const tail = last.split(/[:;—–]/).pop().trim();
+    if (midSentence && HOOK_LINE.test(tail)) { score += 2; why.push('hook right before the cut'); }
     if (READER_HOOK.test(t)) { score += 2; why.push('talks to the reader'); }
     if (STORY_START.test(t)) { score += 1; why.push('personal story'); }
     const dialogue = lines.filter(l => /^[A-Z][\w .'’-]{0,24}:\s*["“]/.test(l)).length;
