@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      3.1
+// @version      3.2
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -35,7 +35,7 @@
   const KEEP_LANGS = ['en'];
   const HIDE_ADS = true;           // posts labelled "Ad" / "Promoted" in feeds and replies
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
-  const FOLD_CUT_OFF = true;       // posts X cuts short with "Read more" / "Show more" count as clickbait
+  const FOLD_CUT_OFF = false;      // true: also fold every post X itself cuts short with its real "Show more" link
   const HIDE_GROK = true;          // the Grok button in the bottom bar / left menu
   const HIDE_PREMIUM = true;       // the Subscribe / Premium buttons
   const CAPTIONS_OFF = true;       // videos start with captions off (tap CC to turn them on)
@@ -44,7 +44,7 @@
   // Clickbait checks (a post's text, any capitalization). A post is folded
   // into a "Hidden: looks like clickbait" bar you can tap to open.
   // 1. Ends on a cliffhanger: "...", "…", or pointing down at a thread
-  const BAIT_ENDINGS = /(\.\.\.|…|👇+|⬇️+|🧵+|\(thread\)|a thread:?|thread:|read more:?|here'?s (what|why|how)( happened)?:?|the answer:?|story time:?)\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/iu;
+  const BAIT_ENDINGS = /(\.\.\.|…|👇+|⬇️+|🧵+|\(thread\)|a thread:?|thread:|(read|see|show) more:?|here'?s (what|why|how)( happened)?:?|the answer:?|story time:?)\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/iu;
   // 2. Bait phrases anywhere in the text
   const BAIT_PHRASES = [
     "you won't believe", 'you won’t believe', 'what happened next', 'what he said next', 'what she said next',
@@ -233,7 +233,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '3.1';
+  const GM_VERSION = '3.2';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
