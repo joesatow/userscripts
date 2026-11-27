@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X
 // @namespace    joesatow-x
-// @version      2.9
+// @version      3.0
 // @description  Logged-in X/Twitter without the feeds: hides the Home timeline, the Explore page's trends and tabs, the sidebar's What's happening, Who to follow and Premium boxes, and the "Discover more" posts under threads. Posts people send you, search, notifications and messages work as normal.
 // @match        https://x.com/*
 // @match        https://mobile.x.com/*
@@ -29,7 +29,8 @@
   const HIDE_EXPLORE = true;       // Explore's trends and tabs (the search box stays)
   const HIDE_SIDEBAR = true;       // What's happening, Who to follow, Premium, news (computer)
   const HIDE_DISCOVER_MORE = true; // "Discover more" recommended posts under a thread
-  const SHOW_FEED_BUTTON = false;  // a "Show feed" button under the note (off: the feed can't be opened)
+  const SHOW_FEED_BUTTON = true;   // a "Show feed" button under the note (off: the feed can't be opened)
+  const HIDE_ADS = true;           // posts labelled "Ad" / "Promoted" in feeds and replies
   const HIDE_CLICKBAIT = true;     // when you show the feed: fold up cliffhanger / engagement-bait posts
   const FOLD_CUT_OFF = true;       // posts X cuts short with "Read more" / "Show more" count as clickbait
   const HIDE_GROK = true;          // the Grok button in the bottom bar / left menu
@@ -229,7 +230,7 @@
       captionDebug();
     if (debugBox.textContent !== msg) debugBox.textContent = msg; // only when changed, or it would keep re-triggering itself
   }
-  const GM_VERSION = '2.9';
+  const GM_VERSION = '3.0';
 
   function textOf(el) {
     return (el.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -455,6 +456,23 @@
     cell.setAttribute('data-xnf-open', '');
   }, true);
 
+  // ---- Ads: posts with an "Ad" / "Promoted" label next to the name ----
+  function sweepAds() {
+    if (!HIDE_ADS) return;
+    for (const cell of document.querySelectorAll(`${PRIMARY} [data-testid="cellInnerDiv"]`)) {
+      const art = cell.querySelector('article');
+      if (!art) continue;
+      let ad = false;
+      for (const sp of art.querySelectorAll('span')) {
+        if (sp.childElementCount) continue;
+        const t = (sp.textContent || '').trim();
+        if ((t === 'Ad' || t === 'Promoted') && !sp.closest('[data-testid="tweetText"]')) { ad = true; break; }
+      }
+      if (ad && !isFocalCell(cell)) hide(cell, 'ad');
+      else if (cell.getAttribute(HIDE_ATTR) === 'ad') cell.removeAttribute(HIDE_ATTR);
+    }
+  }
+
   function sweep() {
     updatePage();
     if (document.body) {
@@ -467,6 +485,7 @@
       sweepButtons();
       sweepSidebar(document.body);
       sweepDiscover();
+      sweepAds();
       sweepCaptions();
       showDebug();
     }
